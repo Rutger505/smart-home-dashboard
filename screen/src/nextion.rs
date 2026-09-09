@@ -24,11 +24,19 @@ pub const BOOT_BAUD: u32 = 9600;
 /// Baud rate both sides switch to once the link is up.
 pub const RUN_BAUD: u32 = 115_200;
 
-/// Every rate a Nextion display accepts, ordered so the common ones are tried
-/// first.
+/// Every rate a Nextion display accepts, in the order it is safe to probe them.
+///
+/// Ascending from the rate a factory display boots at, because the direction of
+/// a wrong guess decides whether the display survives it. Probing below the
+/// display's real rate is harmless and it answers the next probe about 300 ms
+/// later. Probing above it wedges it: measured here, a single `connect` sent at
+/// 115200 to a display listening at 9600 left it silent through 10 s of quiet
+/// and every later probe, until the ESP32 rebooted. So 9600 goes first, the
+/// faster rates follow in order, and the two rates below 9600 come last, where
+/// they are only reached after everything else has already missed.
 pub const CANDIDATE_BAUDS: [u32; 13] = [
-    9600, 115_200, 921_600, 57600, 38400, 19200, 230_400, 250_000, 256_000, 512_000, 4800, 2400,
-    31250,
+    9600, 19200, 31250, 38400, 57600, 115_200, 230_400, 250_000, 256_000, 512_000, 921_600, 4800,
+    2400,
 ];
 
 /// Milliseconds to wait for the display to finish its own boot before talking
@@ -36,24 +44,25 @@ pub const CANDIDATE_BAUDS: [u32; 13] = [
 const POWER_ON_DELAY_MS: u32 = 500;
 
 /// Milliseconds of quiet on either side of a baud rate change, so the last
-/// command drains and the display's UART restarts before the next byte.
-const BAUD_SWITCH_SETTLE_MS: u32 = 50;
+/// command drains and the display's UART restarts before the next byte. 50 ms
+/// was not enough: the terminator that follows went out at the new rate while
+/// the display was still listening at the old one, and the switch then looked
+/// like it had failed.
+const BAUD_SWITCH_SETTLE_MS: u32 = 300;
 
 /// Milliseconds to wait for a `connect` reply while probing one baud rate.
 /// The reply is around 70 bytes, so the slow rates need most of this.
 const CONNECT_REPLY_TIMEOUT_MS: u64 = 350;
 
-/// Milliseconds of quiet after switching this side's rate. Bytes sent at the
-/// wrong rate land in the display's parser as garbage, and it needs to see a
-/// terminator and go idle again before it will read the next probe.
+/// Milliseconds of quiet between flushing the display's parser and speaking to
+/// it again, so the terminator that ends a half-received command lands before
+/// the next one starts.
 const PROBE_SETTLE_MS: u32 = 60;
 
-/// Milliseconds to leave the display alone after a probe it did not answer.
-/// A probe sent at the wrong rate leaves the display deaf for a while:
-/// measured at 300 ms typically and 4.3 s at worst on an NX4024K032. Probing
-/// straight through a rate list without this wait makes the display miss the
-/// one probe that was sent at its own rate.
-const PROBE_RECOVERY_MS: u32 = 600;
+/// Milliseconds to leave the display alone after a probe it did not answer, so
+/// the garbage that probe delivered is not still arriving when the next one
+/// goes out.
+const PROBE_RECOVERY_MS: u32 = 200;
 
 /// Milliseconds a page change takes. Drawing commands sent inside this window
 /// are dropped, and with `bkcmd=0` they are dropped silently.
@@ -62,9 +71,10 @@ const PAGE_LOAD_MS: u32 = 200;
 /// How many times to work through a rate list before giving up.
 const PROBE_PASSES: u8 = 3;
 
-/// The two rates worth trying first: the rate this driver switches to, and the
-/// rate a factory display powers on at. A full sweep only happens if both miss.
-const COMMON_BAUDS: [u32; 2] = [RUN_BAUD, BOOT_BAUD];
+/// The rates worth trying before the full list: the rate a factory display
+/// powers on at, then the rate this driver switches to. Ascending, like
+/// [`CANDIDATE_BAUDS`], and for the same reason.
+const COMMON_BAUDS: [u32; 2] = [BOOT_BAUD, RUN_BAUD];
 
 #[derive(Debug)]
 pub enum Error {
@@ -119,6 +129,7 @@ pub struct Nextion<'d> {
     uart: Uart<'d, Blocking>,
     delay: Delay,
     logging: bool,
+    upgrade_baud: bool,
 }
 
 impl<'d> Nextion<'d> {
@@ -127,7 +138,22 @@ impl<'d> Nextion<'d> {
             uart,
             delay: Delay::new(),
             logging: true,
+            upgrade_baud: false,
         }
+    }
+
+    /// Lets [`Nextion::configure`] move a display it found at some other rate
+    /// up to [`RUN_BAUD`]. Off by default.
+    ///
+    /// The switch is not reliable on this NX4024K032: the display takes the
+    /// `baud=` command but then answers nothing at the new rate, and a probe
+    /// afterwards finds it at neither rate until the ESP32 reboots. Drawing at
+    /// 9600 costs about 0.6 s for a full repaint and 0.2 s for the four
+    /// readings, which is cheap enough to prefer over a link that may not come
+    /// back. Burn the rate into the display's EEPROM with
+    /// [`Nextion::store_baud`] if you want 115200 for good.
+    pub fn set_upgrade_baud(&mut self, upgrade: bool) {
+        self.upgrade_baud = upgrade;
     }
 
     /// Turns the per-command log lines on or off. On by default; turn it off
@@ -139,16 +165,24 @@ impl<'d> Nextion<'d> {
     /// Brings the display to a known state: awake, backlit, on page 0, running
     /// at [`RUN_BAUD`].
     ///
-    /// Returns the baud rate the display answered on, or `None` if it never
-    /// answered. A display that is wired TX-only cannot answer, so a `None`
-    /// here is not fatal and the boot sequence runs anyway at [`BOOT_BAUD`].
+    /// Returns the baud rate the link ended up on, or `None` if the display
+    /// never answered. A display that is wired TX-only cannot answer, so a
+    /// `None` here is not fatal and the boot sequence runs anyway at
+    /// [`BOOT_BAUD`].
     pub fn configure(&mut self, brightness: u8) -> Result<Option<u32>, Error> {
-        self.log(format_args!(
-            "waiting {POWER_ON_DELAY_MS} ms for display boot"
-        ));
-        self.delay.delay_millis(POWER_ON_DELAY_MS);
-
-        let detected = self.detect_baud()?;
+        // The display is only still booting when it was powered up alongside
+        // the ESP32. After a reflash or a warm reset it has been running for
+        // ages, so ask first and wait only if nobody answers.
+        let detected = match self.quick_link()? {
+            Some(baud) => Some(baud),
+            None => {
+                self.log(format_args!(
+                    "no answer yet, waiting {POWER_ON_DELAY_MS} ms for display boot"
+                ));
+                self.delay.delay_millis(POWER_ON_DELAY_MS);
+                self.detect_baud()?
+            }
+        };
         match detected {
             Some(baud) => self.log(format_args!("display answered at {baud} baud")),
             None => self.log(format_args!(
@@ -156,27 +190,54 @@ impl<'d> Nextion<'d> {
             )),
         }
 
-        self.send("bkcmd=0")?;
-
-        if detected.is_some_and(|baud| baud != RUN_BAUD) {
+        let mut rate = detected.unwrap_or(BOOT_BAUD);
+        if self.upgrade_baud && detected.is_some_and(|baud| baud != RUN_BAUD) {
             self.set_baud(RUN_BAUD)?;
             if self.confirm_link()? {
+                rate = RUN_BAUD;
                 self.log(format_args!("display followed to {RUN_BAUD} baud"));
             } else {
-                let fallback = detected.unwrap_or(BOOT_BAUD);
-                self.log(format_args!(
-                    "display did not follow to {RUN_BAUD} baud, staying at {fallback}"
-                ));
-                self.apply_baud(fallback)?;
-                self.flush_parser();
+                self.log(format_args!("no answer at {RUN_BAUD} baud, probing again"));
+                match self.detect_baud()? {
+                    Some(found) => {
+                        rate = found;
+                        self.log(format_args!("display is at {found} baud"));
+                    }
+                    None => {
+                        rate = RUN_BAUD;
+                        self.apply_baud(RUN_BAUD)?;
+                        self.log(format_args!("still no answer, assuming {RUN_BAUD} baud"));
+                    }
+                }
             }
         }
 
+        // Silence the acknowledgements only once every handshake is done.
+        // With `bkcmd=0` the display answers nothing at all, `connect`
+        // included, so setting it earlier makes the link check fail on a link
+        // that is working.
+        self.send("bkcmd=0")?;
         self.send("sleep=0")?;
         self.send_fmt(format_args!("dim={}", brightness.min(100)))?;
         self.send("thup=1")?;
-        self.page(0)?;
-        Ok(detected)
+        Ok(detected.map(|_| rate))
+    }
+
+    /// One handshake at [`BOOT_BAUD`], for the common case where the display
+    /// is already up and running at the rate it powers on with. Costs about
+    /// 80 ms when it works, against roughly 700 ms for a full probe.
+    pub fn quick_link(&mut self) -> Result<Option<u32>, Error> {
+        self.apply_baud(BOOT_BAUD)?;
+        for _ in 0..PROBE_PASSES {
+            // A reset in the middle of a command leaves the display holding
+            // half of one, and it would swallow the probe that follows.
+            self.flush_parser();
+            if self.handshake()? {
+                return Ok(Some(BOOT_BAUD));
+            }
+            self.delay.delay_millis(PROBE_RECOVERY_MS);
+        }
+        Ok(None)
     }
 
     /// Sends `connect` at each rate in [`CANDIDATE_BAUDS`] until the display
@@ -215,7 +276,10 @@ impl<'d> Nextion<'d> {
     pub fn handshake(&mut self) -> Result<bool, Error> {
         self.write_command(b"connect")?;
         self.uart.flush().map_err(|_| Error::Uart)?;
-        let answered = self.wait_for(b"comok", CONNECT_REPLY_TIMEOUT_MS);
+        let (answered, seen) = self.wait_for(b"comok", CONNECT_REPLY_TIMEOUT_MS);
+        if !answered {
+            self.log(format_args!("no comok, {seen} bytes came back"));
+        }
         self.drain();
         Ok(answered)
     }
@@ -231,6 +295,17 @@ impl<'d> Nextion<'d> {
             self.flush_parser();
         }
         Ok(false)
+    }
+
+    /// Sends `count` terminator bytes, to end a command the display is half
+    /// way through parsing. Only useful for experiments; normal code wants
+    /// [`Nextion::flush_parser`].
+    pub fn flush_terminators(&mut self, count: usize) {
+        for _ in 0..count {
+            let _ = self.write_raw(&[0xFF]);
+        }
+        let _ = self.uart.flush();
+        self.drain();
     }
 
     /// Ends whatever half-received command the display is sitting on and
@@ -252,7 +327,11 @@ impl<'d> Nextion<'d> {
         self.uart.flush().map_err(|_| Error::Uart)?;
         self.delay.delay_millis(BAUD_SWITCH_SETTLE_MS);
         self.apply_baud(baud)?;
-        self.flush_parser();
+        self.delay.delay_millis(BAUD_SWITCH_SETTLE_MS);
+        // No terminator here. The display has just restarted its UART, and a
+        // terminator sent into that window stops it answering the handshake
+        // that follows, even though the rate change itself worked.
+        self.drain();
         Ok(())
     }
 
@@ -264,7 +343,11 @@ impl<'d> Nextion<'d> {
         self.uart.flush().map_err(|_| Error::Uart)?;
         self.delay.delay_millis(BAUD_SWITCH_SETTLE_MS);
         self.apply_baud(baud)?;
-        self.flush_parser();
+        self.delay.delay_millis(BAUD_SWITCH_SETTLE_MS);
+        // No terminator here. The display has just restarted its UART, and a
+        // terminator sent into that window stops it answering the handshake
+        // that follows, even though the rate change itself worked.
+        self.drain();
         Ok(())
     }
 
@@ -342,19 +425,41 @@ impl<'d> Nextion<'d> {
     /// the reply to its own `connect`.
     fn drain(&mut self) {
         let mut scratch = [0u8; 64];
-        while matches!(self.uart.read_buffered(&mut scratch), Ok(n) if n > 0) {}
+        while self.read_some(&mut scratch) > 0 {}
     }
 
-    /// Reads until `needle` shows up or `timeout_ms` passes.
-    fn wait_for(&mut self, needle: &[u8], timeout_ms: u64) -> bool {
+    /// Reads whatever is already buffered, clearing the receiver's error state
+    /// first.
+    ///
+    /// `read_buffered` reports any receive error seen since the last check and
+    /// leaves the FIFO untouched when it does. Probing at the wrong baud rate
+    /// produces framing and glitch errors by the dozen, so without this the
+    /// first bad probe makes every later read return that same error forever
+    /// and the display looks dead until the ESP32 reboots.
+    fn read_some(&mut self, buffer: &mut [u8]) -> usize {
+        match self.uart.read_buffered(buffer) {
+            Ok(read) => read,
+            Err(_) => {
+                let _ = self.uart.check_for_rx_errors();
+                self.uart.read_buffered(buffer).unwrap_or(0)
+            }
+        }
+    }
+
+    /// Reads until `needle` shows up or `timeout_ms` passes. Also reports how
+    /// many bytes arrived, which separates a display that said the wrong thing
+    /// from one that said nothing at all.
+    fn wait_for(&mut self, needle: &[u8], timeout_ms: u64) -> (bool, usize) {
         let mut window = [0u8; 64];
         let mut len = 0usize;
+        let mut seen = 0usize;
         let deadline = Duration::from_millis(timeout_ms);
         let start = Instant::now();
 
         while start.elapsed() < deadline {
             let mut chunk = [0u8; 32];
-            let read = self.uart.read_buffered(&mut chunk).unwrap_or(0);
+            let read = self.read_some(&mut chunk);
+            seen += read;
             for &byte in &chunk[..read] {
                 if len == window.len() {
                     window.copy_within(1.., 0);
@@ -364,10 +469,10 @@ impl<'d> Nextion<'d> {
                 len += 1;
             }
             if window[..len].windows(needle.len()).any(|w| w == needle) {
-                return true;
+                return (true, seen);
             }
         }
-        false
+        (false, seen)
     }
 
     /// Paints the whole screen `color`.
@@ -431,7 +536,7 @@ impl<'d> Nextion<'d> {
         let mut chunk = [0u8; 32];
 
         while start.elapsed() < deadline {
-            let read = self.uart.read_buffered(&mut chunk).unwrap_or(0);
+            let read = self.read_some(&mut chunk);
             for &byte in &chunk[..read] {
                 total += 1;
                 if line.len + 8 > line.bytes.len() {

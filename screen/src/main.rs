@@ -8,7 +8,7 @@ use esp_backtrace as _;
 use esp_hal::delay::Delay;
 use esp_hal::main;
 use esp_hal::uart::{Config, Uart};
-use smart_home_dashboard::nextion::{BOOT_BAUD, Error, Nextion, color};
+use screen::nextion::{BOOT_BAUD, Error, Nextion, color};
 
 extern crate alloc;
 
@@ -48,6 +48,7 @@ const TILES: [Tile; 4] = [
 ];
 
 /// Stack formatting for the one line of text a tile shows.
+#[derive(Clone, Copy)]
 struct Line {
     bytes: [u8; 32],
     len: usize,
@@ -152,7 +153,7 @@ fn main() -> ! {
 
     let mut screen = Nextion::new(uart);
     match screen.configure(BRIGHTNESS) {
-        Ok(Some(baud)) => esp_println::println!("boot: screen up, was talking at {baud} baud"),
+        Ok(Some(baud)) => esp_println::println!("boot: screen up at {baud} baud"),
         Ok(None) => esp_println::println!(
             "boot: screen never replied, commands sent blind. Check the display TX wire and that \
              its baud rate is one of the probed rates"
@@ -160,31 +161,45 @@ fn main() -> ! {
         Err(error) => esp_println::println!("boot: screen setup failed: {error:?}"),
     }
 
+    // Logging costs more than the drawing does at this point: every line goes
+    // out of the console UART while the display waits.
+    screen.set_logging(false);
     if let Err(error) = draw_layout(&mut screen) {
         esp_println::println!("boot: layout failed: {error:?}");
     }
 
-    screen.set_logging(false);
-
     let mut seconds: u32 = 0;
+    let mut shown = [Line::new(); TILES.len()];
     loop {
-        tick(&mut screen, seconds);
+        tick(&mut screen, seconds, &mut shown);
         delay.delay_millis(1000);
         seconds += 1;
     }
 }
 
-/// Repaints the four readings. Kept out of `main` so its buffers do not sit on
-/// the stack frame the `#[main]` macro generates.
+/// Repaints the readings that changed. Kept out of `main` so its buffers do not
+/// sit on the stack frame the `#[main]` macro generates.
+///
+/// Redrawing a tile costs about 55 bytes, which is 57 ms of the second at 9600
+/// baud, so tiles whose text is unchanged are worth skipping.
 #[inline(never)]
-fn tick(screen: &mut Nextion<'_>, seconds: u32) {
+fn tick(screen: &mut Nextion<'_>, seconds: u32, shown: &mut [Line; TILES.len()]) {
     for (index, value) in [(0usize, 21), (1, 23), (2, 12)] {
         let mut line = Line::new();
         let _ = write!(line, "{value}.{} C", (seconds + index as u32) % 10);
-        let _ = draw_reading(screen, index, line.as_str());
+        update(screen, index, line, shown);
     }
 
     let mut line = Line::new();
     let _ = write!(line, "{}:{:02}", seconds / 60, seconds % 60);
-    let _ = draw_reading(screen, 3, line.as_str());
+    update(screen, 3, line, shown);
+}
+
+fn update(screen: &mut Nextion<'_>, index: usize, line: Line, shown: &mut [Line; TILES.len()]) {
+    if shown[index].as_str() == line.as_str() {
+        return;
+    }
+    if draw_reading(screen, index, line.as_str()).is_ok() {
+        shown[index] = line;
+    }
 }
