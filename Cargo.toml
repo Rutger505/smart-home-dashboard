@@ -1,14 +1,16 @@
-[workspace]
-members = [".", "screen"]
-# Plain `cargo build` builds this crate only. The firmware in screen/ is built
-# with `cargo build -p screen`.
-default-members = ["."]
-
 [package]
 edition      = "2024"
 name         = "smart-home-dashboard"
 rust-version = "1.88"
 version      = "0.1.0"
+
+[[bin]]
+name = "smart-home-dashboard"
+path = "./src/bin/main.rs"
+
+[[bin]]
+name = "playground"
+path = "./src/bin/playground.rs"
 
 [dependencies]
 esp-hal = { version = "~1.1.0", features = ["esp32", "unstable"] }

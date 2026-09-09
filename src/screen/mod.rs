@@ -1,18 +1,14 @@
-#![no_std]
-#![no_main]
-#![deny(clippy::large_stack_frames)]
+//! The dashboard: boot sequence, layout, and the once-a-second repaint.
+
+pub mod nextion;
 
 use core::fmt::Write;
 
-use esp_backtrace as _;
 use esp_hal::delay::Delay;
-use esp_hal::main;
+use esp_hal::peripherals::Peripherals;
 use esp_hal::uart::{Config, Uart};
-use screen::nextion::{BOOT_BAUD, Error, Nextion, color};
 
-extern crate alloc;
-
-esp_bootloader_esp_idf::esp_app_desc!();
+use self::nextion::{BOOT_BAUD, Error, Nextion, color};
 
 /// Backlight level sent at boot, 0-100.
 const BRIGHTNESS: u8 = 100;
@@ -133,12 +129,8 @@ fn draw_reading(screen: &mut Nextion<'_>, index: usize, value: &str) -> Result<(
     )
 }
 
-#[main]
-fn main() -> ! {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
+pub fn run(peripherals: Peripherals) -> ! {
     let delay = Delay::new();
-
-    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
 
     esp_println::println!("boot: opening UART2 at {BOOT_BAUD} baud");
 
@@ -177,7 +169,7 @@ fn main() -> ! {
     }
 }
 
-/// Repaints the readings that changed. Kept out of `main` so its buffers do not
+/// Repaints the readings that changed. Kept out of `run` so its buffers do not
 /// sit on the stack frame the `#[main]` macro generates.
 ///
 /// Redrawing a tile costs about 55 bytes, which is 57 ms of the second at 9600

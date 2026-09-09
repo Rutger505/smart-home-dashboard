@@ -78,28 +78,30 @@ Two smaller timing rules came out of the same hunt:
 
 ## Code layout
 
-Two crates in one workspace. `src/` is Rutger's, `screen/` is the AI-maintained
-firmware, and `default-members = ["."]` means a plain `cargo build` only touches
-`src/`.
+One crate, two binaries, the layout esp-generate produced. `src/lib.rs` is the
+library both binaries import; it declares `pub mod nextion;` and `pub mod
+screen;` and holds nothing else.
 
-- `screen/src/nextion.rs`: the driver. `no_std`, no heap. Commands are formatted into a
-  128 byte stack buffer and terminated with `FF FF FF`. Every command is logged
-  as `nextion: -> <command>` unless `set_logging(false)` turns that off, which
-  is worth doing once the dashboard starts pushing updates every second.
-- `screen/src/main.rs`: opens UART2, runs the boot sequence, then draws the
-  dashboard, a header and a 2x2 grid of tiles, and repaints the readings once a
-  second. Nothing appears on the display unless the firmware draws it, so an
-  empty screen after a clean boot log means this file, not the wiring.
-- `screen/src/bin/diag.rs`: throwaway hardware diagnostics. Rewrite it freely to test
-  one hypothesis at a time. `Nextion::dump_reply` prints whatever the display
-  sends as hex plus ASCII, which is the fastest way to see what a command
-  actually returned.
-- `screen/interface.HMI`: the Nextion Editor project, plus `screen/default.zi`,
-  a compiled font.
+- `src/screen/nextion.rs`: the driver. `no_std`, no heap. Commands are formatted
+  into a 128 byte stack buffer and terminated with `FF FF FF`. Every command is
+  logged as `nextion: -> <command>` unless `set_logging(false)` turns that off,
+  which is worth doing once the dashboard starts pushing updates every second.
+- `src/screen/mod.rs`: the dashboard. `screen::run` takes the peripherals, runs
+  the boot sequence, draws a header and a 2x2 grid of tiles, and repaints the
+  readings once a second. Nothing appears on the display unless the firmware
+  draws it, so an empty screen after a clean boot log means this file, not the
+  wiring.
+- `src/bin/main.rs`: the binary that runs. It initialises the chip, sets up the
+  heap, and calls `screen::run`. Keep it that short.
+- `src/nextion.rs`: Rutger's own driver, flat file, currently empty.
+- `src/bin/playground.rs`: Rutger's binary, built every time and flashed only
+  when he asks for it.
+- `screen-hmi/interface.HMI`: the Nextion Editor project, plus
+  `screen-hmi/default.zi`, a compiled font.
 
-Both crates need their own `build.rs`. It is what passes `-Tlinkall.x` to the
-linker, and without it the binary links at the wrong addresses and espflash
-rejects it with "appdesc segment not found".
+`build.rs` at the root passes `-Tlinkall.x` to the linker. Without it the binary
+links at the wrong addresses and espflash rejects it with "appdesc segment not
+found".
 
 ## The HMI file
 
@@ -118,28 +120,32 @@ Nothing here can produce a `.tft`. Compiling needs Nextion Editor on Windows.
 That is the main argument for keeping the HMI nearly empty and drawing from the
 firmware instead.
 
-## src/, which is Rutger's
+## Who owns what
 
-The root crate is Rutger's own, where he writes display code by hand to learn
-the Nextion protocol from the official documentation. Claude must not create,
-edit or refactor files under `src/`, and must not offer finished code for it.
-Reading it to answer a direct question is fine.
+Claude writes `src/screen/**` and `screen-hmi/`. Everything else is Rutger's:
+`src/nextion.rs`, where he writes a driver by hand to learn the Nextion protocol
+from the official documentation, `src/bin/playground.rs`, `src/bin/main.rs` and
+`src/lib.rs`. Claude must not create, edit or refactor those, and must not offer
+finished code for them. Reading them to answer a direct question is fine.
+
+Both drivers talk to the same UART2. They never run at once, since each binary
+picks one, but any future sharing has to hand the link over drained and with the
+receive errors cleared, for the reason in the section above.
 
 ## Build and flash
 
-The firmware:
+`cargo build` builds both binaries.
 
-```
-cargo build -p screen
-espflash flash --port /dev/ttyUSB0 --chip esp32 target/xtensa-esp32-none-elf/debug/screen
-```
-
-Rutger's crate:
+The dashboard:
 
 ```
 cargo build
-cargo run          # espflash flash --monitor, per .cargo/config.toml
+espflash flash --port /dev/ttyUSB0 --chip esp32 target/xtensa-esp32-none-elf/debug/smart-home-dashboard
 ```
+
+Rutger's playground is the same command with
+`target/xtensa-esp32-none-elf/debug/playground`, or `cargo run --bin playground`
+for espflash with a monitor attached, per `.cargo/config.toml`.
 
 `cargo run` opens an interactive monitor that never exits, which is useless in
 an automated loop. To flash and capture a log without hanging:
@@ -157,7 +163,7 @@ The console log arrives scrambled, with fragments of earlier lines cut into
 later ones. That is the ESP32 overrunning its own UART0 transmit FIFO, not the
 monitor: raw reads straight from `/dev/ttyUSB0` show the same damage. Printing
 fewer lines with a delay between them comes out clean, which is what
-`src/bin/diag.rs` does with its `RESULT name=value` lines. Grep for what you
+a diagnostic binary should do with `RESULT name=value` lines. Grep for what you
 want rather than reading the log top to bottom, and do not trust the order.
 
 `cargo clippy --all-targets` fails with "can't find crate for `test`" because
