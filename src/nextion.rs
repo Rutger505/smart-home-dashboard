@@ -40,7 +40,31 @@ const POWER_ON_DELAY_MS: u32 = 500;
 const BAUD_SWITCH_SETTLE_MS: u32 = 50;
 
 /// Milliseconds to wait for a `connect` reply while probing one baud rate.
-const CONNECT_REPLY_TIMEOUT_MS: u64 = 120;
+/// The reply is around 70 bytes, so the slow rates need most of this.
+const CONNECT_REPLY_TIMEOUT_MS: u64 = 350;
+
+/// Milliseconds of quiet after switching this side's rate. Bytes sent at the
+/// wrong rate land in the display's parser as garbage, and it needs to see a
+/// terminator and go idle again before it will read the next probe.
+const PROBE_SETTLE_MS: u32 = 60;
+
+/// Milliseconds to leave the display alone after a probe it did not answer.
+/// A probe sent at the wrong rate leaves the display deaf for a while:
+/// measured at 300 ms typically and 4.3 s at worst on an NX4024K032. Probing
+/// straight through a rate list without this wait makes the display miss the
+/// one probe that was sent at its own rate.
+const PROBE_RECOVERY_MS: u32 = 600;
+
+/// Milliseconds a page change takes. Drawing commands sent inside this window
+/// are dropped, and with `bkcmd=0` they are dropped silently.
+const PAGE_LOAD_MS: u32 = 200;
+
+/// How many times to work through a rate list before giving up.
+const PROBE_PASSES: u8 = 3;
+
+/// The two rates worth trying first: the rate this driver switches to, and the
+/// rate a factory display powers on at. A full sweep only happens if both miss.
+const COMMON_BAUDS: [u32; 2] = [RUN_BAUD, BOOT_BAUD];
 
 #[derive(Debug)]
 pub enum Error {
@@ -72,6 +96,10 @@ impl CommandBuffer {
 
     fn as_slice(&self) -> &[u8] {
         &self.bytes[..self.len]
+    }
+
+    fn as_str(&self) -> &str {
+        core::str::from_utf8(self.as_slice()).unwrap_or("<non-utf8>")
     }
 }
 
@@ -123,41 +151,97 @@ impl<'d> Nextion<'d> {
         let detected = self.detect_baud()?;
         match detected {
             Some(baud) => self.log(format_args!("display answered at {baud} baud")),
-            None => {
+            None => self.log(format_args!(
+                "no reply on any rate, assuming {BOOT_BAUD} baud"
+            )),
+        }
+
+        self.send("bkcmd=0")?;
+
+        if detected.is_some_and(|baud| baud != RUN_BAUD) {
+            self.set_baud(RUN_BAUD)?;
+            if self.confirm_link()? {
+                self.log(format_args!("display followed to {RUN_BAUD} baud"));
+            } else {
+                let fallback = detected.unwrap_or(BOOT_BAUD);
                 self.log(format_args!(
-                    "no reply on any rate, assuming {BOOT_BAUD} baud"
+                    "display did not follow to {RUN_BAUD} baud, staying at {fallback}"
                 ));
-                self.apply_baud(BOOT_BAUD)?;
+                self.apply_baud(fallback)?;
+                self.flush_parser();
             }
         }
 
-        // Flush any half-received command left over from a warm reset.
-        self.write_raw(&TERMINATOR)?;
-
-        self.send("bkcmd=0")?;
-        self.set_baud(RUN_BAUD)?;
+        self.send("sleep=0")?;
         self.send_fmt(format_args!("dim={}", brightness.min(100)))?;
         self.send("thup=1")?;
-        self.send("page 0")?;
-        self.log(format_args!("ready at {RUN_BAUD} baud"));
+        self.page(0)?;
         Ok(detected)
     }
 
     /// Sends `connect` at each rate in [`CANDIDATE_BAUDS`] until the display
     /// replies, leaving the UART open at the rate that worked.
     pub fn detect_baud(&mut self) -> Result<Option<u32>, Error> {
-        for baud in CANDIDATE_BAUDS {
-            self.log(format_args!("probing {baud} baud"));
-            self.apply_baud(baud)?;
-            self.drain();
-            self.write_raw(&TERMINATOR)?;
-            self.write_command(b"connect")?;
-            self.uart.flush().map_err(|_| Error::Uart)?;
-            if self.wait_for(b"comok", CONNECT_REPLY_TIMEOUT_MS) {
-                return Ok(Some(baud));
+        if let Some(baud) = self.sweep(&COMMON_BAUDS, PROBE_PASSES)? {
+            return Ok(Some(baud));
+        }
+        if let Some(baud) = self.sweep(&CANDIDATE_BAUDS, 1)? {
+            return Ok(Some(baud));
+        }
+        self.apply_baud(BOOT_BAUD)?;
+        Ok(None)
+    }
+
+    /// Probes each rate in `bauds`, `passes` times over. Every miss is
+    /// followed by [`PROBE_RECOVERY_MS`] of silence, because the miss itself
+    /// was garbage to the display and it ignores what comes straight after.
+    fn sweep(&mut self, bauds: &[u32], passes: u8) -> Result<Option<u32>, Error> {
+        for pass in 0..passes {
+            for &baud in bauds {
+                self.log(format_args!("probing {baud} baud, pass {}", pass + 1));
+                self.apply_baud(baud)?;
+                self.flush_parser();
+                if self.handshake()? {
+                    return Ok(Some(baud));
+                }
+                self.delay.delay_millis(PROBE_RECOVERY_MS);
             }
         }
         Ok(None)
+    }
+
+    /// Sends `connect` and waits for the display to name itself. True means
+    /// the display is listening at this side's current rate.
+    pub fn handshake(&mut self) -> Result<bool, Error> {
+        self.write_command(b"connect")?;
+        self.uart.flush().map_err(|_| Error::Uart)?;
+        let answered = self.wait_for(b"comok", CONNECT_REPLY_TIMEOUT_MS);
+        self.drain();
+        Ok(answered)
+    }
+
+    /// Handshakes up to [`PROBE_PASSES`] times, waiting out the deaf spell a
+    /// failed attempt leaves behind.
+    pub fn confirm_link(&mut self) -> Result<bool, Error> {
+        for _ in 0..PROBE_PASSES {
+            if self.handshake()? {
+                return Ok(true);
+            }
+            self.delay.delay_millis(PROBE_RECOVERY_MS);
+            self.flush_parser();
+        }
+        Ok(false)
+    }
+
+    /// Ends whatever half-received command the display is sitting on and
+    /// throws away anything it sent back, so the next command is read alone.
+    /// Needed after every rate change, because bytes sent at the wrong rate
+    /// leave a partial command in the display's parser.
+    pub fn flush_parser(&mut self) {
+        let _ = self.write_raw(&TERMINATOR);
+        let _ = self.uart.flush();
+        self.delay.delay_millis(PROBE_SETTLE_MS);
+        self.drain();
     }
 
     /// Switches the display and then this side to `baud`. The setting is not
@@ -168,7 +252,7 @@ impl<'d> Nextion<'d> {
         self.uart.flush().map_err(|_| Error::Uart)?;
         self.delay.delay_millis(BAUD_SWITCH_SETTLE_MS);
         self.apply_baud(baud)?;
-        self.delay.delay_millis(BAUD_SWITCH_SETTLE_MS);
+        self.flush_parser();
         Ok(())
     }
 
@@ -180,12 +264,17 @@ impl<'d> Nextion<'d> {
         self.uart.flush().map_err(|_| Error::Uart)?;
         self.delay.delay_millis(BAUD_SWITCH_SETTLE_MS);
         self.apply_baud(baud)?;
-        self.delay.delay_millis(BAUD_SWITCH_SETTLE_MS);
+        self.flush_parser();
         Ok(())
     }
 
+    /// Switches pages and waits for the load to finish. Anything drawn before
+    /// the new page is up is lost.
     pub fn page(&mut self, page: u8) -> Result<(), Error> {
-        self.send_fmt(format_args!("page {page}"))
+        self.send_fmt(format_args!("page {page}"))?;
+        self.delay.delay_millis(PAGE_LOAD_MS);
+        self.drain();
+        Ok(())
     }
 
     /// Sets the backlight, 0-100.
@@ -281,9 +370,114 @@ impl<'d> Nextion<'d> {
         false
     }
 
+    /// Paints the whole screen `color`.
+    pub fn clear(&mut self, color: u16) -> Result<(), Error> {
+        self.send_fmt(format_args!("cls {color}"))
+    }
+
+    pub fn fill(&mut self, x: u16, y: u16, width: u16, height: u16, color: u16) -> Result<(), Error> {
+        self.send_fmt(format_args!("fill {x},{y},{width},{height},{color}"))
+    }
+
+    pub fn line(&mut self, x1: u16, y1: u16, x2: u16, y2: u16, color: u16) -> Result<(), Error> {
+        self.send_fmt(format_args!("line {x1},{y1},{x2},{y2},{color}"))
+    }
+
+    /// Draws `text` centred in a box, over a solid `background`. `font` is an
+    /// index into the fonts compiled into the HMI file.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_text(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        font: u8,
+        color: u16,
+        background: u16,
+        text: &str,
+    ) -> Result<(), Error> {
+        self.send_fmt(format_args!(
+            "xstr {x},{y},{width},{height},{font},{color},{background},1,1,1,\"{text}\""
+        ))
+    }
+
+    /// Same as [`Nextion::draw_text`] but left aligned, for values that change
+    /// length and would otherwise jump around.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_text_left(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        font: u8,
+        color: u16,
+        background: u16,
+        text: &str,
+    ) -> Result<(), Error> {
+        self.send_fmt(format_args!(
+            "xstr {x},{y},{width},{height},{font},{color},{background},0,1,1,\"{text}\""
+        ))
+    }
+
+    /// Logs everything the display sends over the next `timeout_ms`, as hex
+    /// plus printable ASCII. Returns the number of bytes seen.
+    pub fn dump_reply(&mut self, label: &str, timeout_ms: u64) -> usize {
+        let deadline = Duration::from_millis(timeout_ms);
+        let start = Instant::now();
+        let mut total = 0usize;
+        let mut line = CommandBuffer::new();
+        let mut chunk = [0u8; 32];
+
+        while start.elapsed() < deadline {
+            let read = self.uart.read_buffered(&mut chunk).unwrap_or(0);
+            for &byte in &chunk[..read] {
+                total += 1;
+                if line.len + 8 > line.bytes.len() {
+                    println!("nextion: {label} <- {}", line.as_str());
+                    line = CommandBuffer::new();
+                }
+                let printable = if (0x20..0x7f).contains(&byte) {
+                    byte as char
+                } else {
+                    '.'
+                };
+                let _ = write!(line, "{byte:02X}{printable} ");
+            }
+        }
+
+        if total == 0 {
+            println!("nextion: {label} <- nothing");
+        } else {
+            println!("nextion: {label} <- {total} bytes: {}", line.as_str());
+        }
+        total
+    }
+
+    /// Switches only this side's rate. Probing uses it; normal code wants
+    /// [`Nextion::set_baud`], which moves the display too.
+    pub fn set_probe_baud(&mut self, baud: u32) -> Result<(), Error> {
+        self.apply_baud(baud)
+    }
+
     fn log(&self, args: core::fmt::Arguments<'_>) {
         if self.logging {
             println!("nextion: {args}");
         }
     }
+}
+
+
+/// RGB565 colours, the format every Nextion drawing command takes.
+pub mod color {
+    pub const BLACK: u16 = 0;
+    pub const WHITE: u16 = 65535;
+    pub const RED: u16 = 63488;
+    pub const GREEN: u16 = 2016;
+    pub const BLUE: u16 = 31;
+    pub const YELLOW: u16 = 65504;
+    pub const CYAN: u16 = 2047;
+    pub const GRAY: u16 = 33840;
+    pub const DARK: u16 = 2113;
 }

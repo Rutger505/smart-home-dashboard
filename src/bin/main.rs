@@ -2,11 +2,13 @@
 #![no_main]
 #![deny(clippy::large_stack_frames)]
 
+use core::fmt::Write;
+
 use esp_backtrace as _;
+use esp_hal::delay::Delay;
 use esp_hal::main;
-use esp_hal::time::{Duration, Instant};
 use esp_hal::uart::{Config, Uart};
-use smart_home_dashboard::nextion::{BOOT_BAUD, Nextion};
+use smart_home_dashboard::nextion::{BOOT_BAUD, Error, Nextion, color};
 
 extern crate alloc;
 
@@ -15,26 +17,125 @@ esp_bootloader_esp_idf::esp_app_desc!();
 /// Backlight level sent at boot, 0-100.
 const BRIGHTNESS: u8 = 100;
 
+const WIDTH: u16 = 400;
+const HEIGHT: u16 = 240;
+const HEADER_HEIGHT: u16 = 44;
+const FONT: u8 = 0;
+
+/// One tile of the 2x2 grid below the header.
+struct Tile {
+    label: &'static str,
+    accent: u16,
+}
+
+const TILES: [Tile; 4] = [
+    Tile {
+        label: "LIVING",
+        accent: color::CYAN,
+    },
+    Tile {
+        label: "KITCHEN",
+        accent: color::GREEN,
+    },
+    Tile {
+        label: "OUTSIDE",
+        accent: color::YELLOW,
+    },
+    Tile {
+        label: "UPTIME",
+        accent: color::RED,
+    },
+];
+
+/// Stack formatting for the one line of text a tile shows.
+struct Line {
+    bytes: [u8; 32],
+    len: usize,
+}
+
+impl Line {
+    fn new() -> Self {
+        Self {
+            bytes: [0; 32],
+            len: 0,
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.bytes[..self.len]).unwrap_or("?")
+    }
+}
+
+impl Write for Line {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let end = self.len + s.len();
+        if end > self.bytes.len() {
+            return Err(core::fmt::Error);
+        }
+        self.bytes[self.len..end].copy_from_slice(s.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
+
+fn tile_box(index: usize) -> (u16, u16, u16, u16) {
+    let width = WIDTH / 2;
+    let height = (HEIGHT - HEADER_HEIGHT) / 2;
+    let x = (index as u16 % 2) * width;
+    let y = HEADER_HEIGHT + (index as u16 / 2) * height;
+    (x, y, width, height)
+}
+
+fn draw_layout(screen: &mut Nextion<'_>) -> Result<(), Error> {
+    screen.clear(color::DARK)?;
+    screen.fill(0, 0, WIDTH, HEADER_HEIGHT, color::BLUE)?;
+    screen.draw_text(
+        0,
+        6,
+        WIDTH,
+        HEADER_HEIGHT - 12,
+        FONT,
+        color::WHITE,
+        color::BLUE,
+        "SMART HOME",
+    )?;
+
+    for (index, tile) in TILES.iter().enumerate() {
+        let (x, y, width, height) = tile_box(index);
+        screen.fill(x + 4, y + 4, width - 8, height - 8, color::BLACK)?;
+        screen.fill(x + 4, y + 4, width - 8, 4, tile.accent)?;
+        screen.draw_text(
+            x + 8,
+            y + 12,
+            width - 16,
+            20,
+            FONT,
+            tile.accent,
+            color::BLACK,
+            tile.label,
+        )?;
+    }
+    Ok(())
+}
+
+fn draw_reading(screen: &mut Nextion<'_>, index: usize, value: &str) -> Result<(), Error> {
+    let (x, y, width, height) = tile_box(index);
+    screen.draw_text(
+        x + 8,
+        y + 36,
+        width - 16,
+        height - 48,
+        FONT,
+        color::WHITE,
+        color::BLACK,
+        value,
+    )
+}
+
 #[main]
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
-
-    // The following pins are used to bootstrap the chip. They are available
-    // for use, but check the datasheet of the module for more information on them.
-    // - GPIO0
-    // - GPIO2
-    // - GPIO5
-    // - GPIO12
-    // - GPIO15
-    // These GPIO pins are in use by some feature of the module and should not be used.
-    let _ = peripherals.GPIO6;
-    let _ = peripherals.GPIO7;
-    let _ = peripherals.GPIO8;
-    let _ = peripherals.GPIO9;
-    let _ = peripherals.GPIO10;
-    let _ = peripherals.GPIO11;
-
-    let _ = peripherals.GPIO20;
+    let delay = Delay::new();
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
 
@@ -59,8 +160,31 @@ fn main() -> ! {
         Err(error) => esp_println::println!("boot: screen setup failed: {error:?}"),
     }
 
-    loop {
-        let delay_start = Instant::now();
-        while delay_start.elapsed() < Duration::from_millis(500) {}
+    if let Err(error) = draw_layout(&mut screen) {
+        esp_println::println!("boot: layout failed: {error:?}");
     }
+
+    screen.set_logging(false);
+
+    let mut seconds: u32 = 0;
+    loop {
+        tick(&mut screen, seconds);
+        delay.delay_millis(1000);
+        seconds += 1;
+    }
+}
+
+/// Repaints the four readings. Kept out of `main` so its buffers do not sit on
+/// the stack frame the `#[main]` macro generates.
+#[inline(never)]
+fn tick(screen: &mut Nextion<'_>, seconds: u32) {
+    for (index, value) in [(0usize, 21), (1, 23), (2, 12)] {
+        let mut line = Line::new();
+        let _ = write!(line, "{value}.{} C", (seconds + index as u32) % 10);
+        let _ = draw_reading(screen, index, line.as_str());
+    }
+
+    let mut line = Line::new();
+    let _ = write!(line, "{}:{:02}", seconds / 60, seconds % 60);
+    let _ = draw_reading(screen, 3, line.as_str());
 }
