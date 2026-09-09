@@ -92,7 +92,10 @@ screen;` and holds nothing else.
   draws it, so an empty screen after a clean boot log means this file, not the
   wiring.
 - `src/bin/main.rs`: the binary that runs. It initialises the chip, sets up the
-  heap, and calls `screen::run`. Keep it that short.
+  heap, and calls `screen::run`. Keep it that short. This is the one place the
+  two sides meet, so `pub fn run(peripherals: Peripherals) -> !` is a contract:
+  Claude can change what happens inside it but not its name or signature, since
+  fixing the caller means editing a file Claude does not own.
 - `src/nextion.rs`: Rutger's own driver, flat file, currently empty.
 - `src/bin/playground.rs`: Rutger's binary, built every time and flashed only
   when he asks for it.
@@ -134,7 +137,8 @@ receive errors cleared, for the reason in the section above.
 
 ## Build and flash
 
-`cargo build` builds both binaries.
+`cargo build` builds both binaries, and `default-run` makes the dashboard the
+one a bare `cargo run` picks.
 
 The dashboard:
 
