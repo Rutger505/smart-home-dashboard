@@ -4,7 +4,6 @@
 
 use esp_backtrace as _;
 use esp_hal::main;
-use smart_home_dashboard::screen;
 
 extern crate alloc;
 
@@ -15,5 +14,7 @@ fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
 
-    screen::run(peripherals)
+    loop {
+
+    }
 }

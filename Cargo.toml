@@ -9,10 +9,6 @@ version      = "0.1.0"
 name = "smart-home-dashboard"
 path = "./src/bin/main.rs"
 
-[[bin]]
-name = "playground"
-path = "./src/bin/playground.rs"
-
 [dependencies]
 esp-hal = { version = "~1.1.0", features = ["esp32", "unstable"] }
 
