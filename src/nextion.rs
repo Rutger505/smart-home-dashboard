@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use alloc::{format, vec};
+use esp_hal::Blocking;
 use esp_hal::uart::Uart;
-use esp_hal::{Async, Blocking};
 use esp_println::println;
 
 pub struct Screen<'a> {
@@ -40,12 +40,18 @@ impl<'a> Screen<'a> {
     }
 
     pub fn process(&mut self) {
+        self.read();
+
         for (i, byte) in self.commands.iter().enumerate() {
             println!("Command: {:02X} 0x{:02X}", i, byte);
         }
     }
 
     pub fn update(&mut self, room_temp: u8) {
+        if !self.uart.write_ready() {
+            return;
+        }
+
         let command_string = format!("t1.txt=\"{}\"", room_temp);
         let mut command_bytes = command_string.clone().into_bytes();
 

@@ -3,14 +3,11 @@
 
 extern crate alloc;
 
-use alloc::format;
 use esp_backtrace as _;
-use esp_hal::delay::Delay; // 1. Use the proper delay utility
 use esp_hal::main;
 use esp_hal::rng::Rng;
 use esp_hal::time::{Duration, Instant};
 use esp_hal::uart::{Config, Uart};
-use esp_println::println;
 use smart_home_dashboard::nextion::Screen;
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -20,7 +17,6 @@ fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
 
-    let delay = Delay::new();
     let rng = Rng::new();
 
     // with_rx enables the internal pull-up on the RX pin
@@ -37,7 +33,7 @@ fn main() -> ! {
     loop {
         display.process();
 
-        if last_tx_time.elapsed() >= Duration::from_millis(300) {
+        if last_tx_time.elapsed() >= Duration::from_millis(100) {
             display.update(rng.random() as u8);
 
             last_tx_time = Instant::now()
