@@ -3,40 +3,52 @@
 
 extern crate alloc;
 
+use embassy_executor::Spawner;
+use embassy_futures::select::{Either, select};
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use esp_backtrace as _;
-use esp_hal::main;
+use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::rng::Rng;
-use esp_hal::time::{Duration, Instant};
+use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config, Uart};
+use esp_println::println;
 use smart_home_dashboard::nextion::Screen;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-#[main]
-fn main() -> ! {
+#[esp_rtos::main]
+async fn main(spawner: Spawner) -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
 
-    let rng = Rng::new();
-
-    // with_rx enables the internal pull-up on the RX pin
-    let rx_pin = peripherals.GPIO16;
-    let tx_pin = peripherals.GPIO17;
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    let sw_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
 
     let display_uart = Uart::new(peripherals.UART2, Config::default().with_baudrate(9600))
         .expect("Could not initialize UART for display")
-        .with_tx(tx_pin)
-        .with_rx(rx_pin);
-    let mut display = Screen::new(display_uart);
+        .with_tx(peripherals.GPIO17)
+        .with_rx(peripherals.GPIO16)
+        .into_async();
 
-    let mut last_tx_time = Instant::now();
+    spawner.spawn(display(Screen::new(display_uart)).unwrap());
+
     loop {
-        display.process();
+        Timer::after(Duration::from_secs(60)).await;
+        println!("Uptime: {}s", Instant::now().as_secs());
+    }
+}
 
-        if last_tx_time.elapsed() >= Duration::from_millis(100) {
-            display.update(rng.random() as u8);
+#[embassy_executor::task]
+async fn display(mut screen: Screen<'static>) {
+    let rng = Rng::new();
 
-            last_tx_time = Instant::now()
+    let mut update_screen_ticker = Ticker::every(Duration::from_millis(100));
+
+    loop {
+        match select(screen.process(), update_screen_ticker.next()).await {
+            Either::First(()) => {}
+            Either::Second(()) => screen.update(rng.random() as u8).await,
         }
     }
 }
