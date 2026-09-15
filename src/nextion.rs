@@ -9,6 +9,10 @@ const COMMAND_TERMINATOR: [u8; 3] = [0xFF; 3];
 
 const TOUCH_EVENT_ID: u8 = 0x65;
 
+
+const PRESS_EVENT: u8 = 1;
+const RELEASE_EVENT: u8 = 0;
+
 pub struct Screen<'a> {
     uart: Uart<'a, Async>,
     rx_buf: [u8; 128],
@@ -51,7 +55,7 @@ impl<'a> Screen<'a> {
             return;
         };
 
-        let mut command: Vec<u8> = self.commands.drain(..end).collect();
+        let command: Vec<u8> = self.commands.drain(..end).collect();
         self.commands.drain(..COMMAND_TERMINATOR.len());
 
         let Some((command_type, command_data)) = command.split_first() else {
@@ -74,10 +78,7 @@ impl<'a> Screen<'a> {
     }
 
     async fn process_touch(&mut self, data: &[u8]) {
-        let page = data[0];
         let component_id = data[1];
-        const PRESS_EVENT: u8 = 1;
-        const RELEASE_EVENT: u8 = 0;
         let event = data[2];
         if event != RELEASE_EVENT && event != PRESS_EVENT {
             warn!("Event not present RELEASE_EVENT, or PRESS_EVENT, returning");
@@ -94,12 +95,14 @@ impl<'a> Screen<'a> {
         } else {
             0
         })
-        .await;
+            .await;
     }
 
     pub async fn update(&mut self, room_temp: u8) {
         // TODO: Proper update method to carry information on which page and component data should be updated.
-        return;
+        if self.page != 0 {
+            return;
+        }
 
         let command = format!("t1.txt=\"{}\"", room_temp);
 
