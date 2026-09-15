@@ -5,13 +5,13 @@ extern crate alloc;
 
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_time::{Duration, Instant, Ticker, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 use esp_backtrace as _;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config, Uart};
-use log::{LevelFilter, info};
+use log::LevelFilter;
 use smart_home_dashboard::logger;
 use smart_home_dashboard::nextion::Screen;
 
