@@ -3,7 +3,7 @@ use alloc::format;
 use alloc::vec::Vec;
 use esp_hal::Async;
 use esp_hal::uart::{IoError, Uart};
-use esp_println::{print, println};
+use log::{debug, error, info, warn};
 
 const COMMAND_TERMINATOR: [u8; 3] = [0xFF; 3];
 
@@ -31,12 +31,12 @@ impl<'a> Screen<'a> {
     pub async fn read(&mut self) {
         match self.uart.read_async(&mut self.rx_buf).await {
             Ok(size) => {
-                println!("Rx Data: {:X?}", &self.rx_buf[0..size]);
+                debug!("Rx Data: {:X?}", &self.rx_buf[0..size]);
 
                 self.commands.extend(&self.rx_buf[0..size]);
             }
             // read() already cleared the error flags, so logging is enough
-            Err(e) => println!("UART Rx Error: {:?}", e),
+            Err(e) => error!("UART Rx Error: {:?}", e),
         }
     }
 
@@ -61,7 +61,7 @@ impl<'a> Screen<'a> {
         match *command_type {
             TOUCH_EVENT_ID => self.process_touch(command_data).await,
             _ => {
-                println!("Command type not implemented")
+                warn!("Command type not implemented")
             }
         }
     }
@@ -80,7 +80,7 @@ impl<'a> Screen<'a> {
         const RELEASE_EVENT: u8 = 0;
         let event = data[2];
         if event != RELEASE_EVENT && event != PRESS_EVENT {
-            println!("Event not present RELEASE_EVENT, or PRESS_EVENT, returning");
+            warn!("Event not present RELEASE_EVENT, or PRESS_EVENT, returning");
             return;
         }
 
@@ -104,11 +104,11 @@ impl<'a> Screen<'a> {
         let command = format!("t1.txt=\"{}\"", room_temp);
 
         if let Err(err) = self.send(command.as_bytes()).await {
-            println!("Tx Error: {:?}", err);
+            error!("Tx Error: {:?}", err);
             return;
         }
 
-        println!("Written data: {}", command);
+        debug!("Written data: {}", command);
     }
 
     async fn set_page(&mut self, page: u8) {
@@ -119,14 +119,14 @@ impl<'a> Screen<'a> {
         let command = format!("page {}", page);
 
         if let Err(err) = self.send(command.as_bytes()).await {
-            println!("Tx Error: {:?}", err);
+            error!("Tx Error: {:?}", err);
             return;
         }
 
         self.page = page;
 
-        println!("Written data: {}", command);
-        println!("Page set to: {}", page);
+        debug!("Written data: {}", command);
+        info!("Page set to: {}", page);
     }
 
     async fn send(&mut self, command: &[u8]) -> Result<(), IoError> {

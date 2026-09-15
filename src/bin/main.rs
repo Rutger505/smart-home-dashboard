@@ -11,13 +11,16 @@ use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config, Uart};
-use esp_println::println;
+use log::{LevelFilter, info};
+use smart_home_dashboard::logger;
 use smart_home_dashboard::nextion::Screen;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
+    logger::init(LevelFilter::Debug);
+
     let peripherals = esp_hal::init(esp_hal::Config::default());
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
 
@@ -35,7 +38,7 @@ async fn main(spawner: Spawner) -> ! {
 
     loop {
         Timer::after(Duration::from_secs(60)).await;
-        println!("Uptime: {}s", Instant::now().as_secs());
+        info!("Uptime: {}s", Instant::now().as_secs());
     }
 }
 
