@@ -1,15 +1,18 @@
+use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::vec::Vec;
 use esp_hal::Async;
 use esp_hal::uart::{IoError, Uart};
-use esp_println::println;
+use esp_println::{print, println};
 
 const COMMAND_TERMINATOR: [u8; 3] = [0xFF; 3];
+
+const TOUCH_EVENT_ID: u8 = 0x65;
 
 pub struct Screen<'a> {
     uart: Uart<'a, Async>,
     rx_buf: [u8; 128],
-    commands: Vec<u8>,
+    commands: VecDeque<u8>,
 }
 
 impl<'a> Screen<'a> {
@@ -17,7 +20,7 @@ impl<'a> Screen<'a> {
         Self {
             uart,
             rx_buf: [0; 128],
-            commands: Vec::new(),
+            commands: VecDeque::new(),
         }
     }
 
@@ -26,7 +29,7 @@ impl<'a> Screen<'a> {
             Ok(size) => {
                 println!("Rx Data: {:X?}", &self.rx_buf[0..size]);
 
-                self.commands.extend_from_slice(&self.rx_buf[0..size]);
+                self.commands.extend(&self.rx_buf[0..size]);
             }
             // read() already cleared the error flags, so logging is enough
             Err(e) => println!("UART Rx Error: {:?}", e),
@@ -36,8 +39,45 @@ impl<'a> Screen<'a> {
     pub async fn process(&mut self) {
         self.read().await;
 
-        for (i, byte) in self.commands.iter().enumerate() {
-            println!("Command: {:02X} 0x{:02X}", i, byte);
+        if self.commands.is_empty() {
+            return;
+        }
+
+        let Some(end) = self.find_terminator() else {
+            return;
+        };
+
+        let mut command: Vec<u8> = self.commands.drain(..end).collect();
+        self.commands.drain(..COMMAND_TERMINATOR.len());
+
+        let Some((command_type, command_data)) = command.split_first() else {
+            return;
+        };
+
+        match *command_type {
+            TOUCH_EVENT_ID => self.process_touch(command_data),
+            _ => {
+                println!("Command type not implemented")
+            }
+        }
+    }
+
+    fn find_terminator(&mut self) -> Option<usize> {
+        self.commands
+            .make_contiguous()
+            .windows(COMMAND_TERMINATOR.len())
+            .position(|w| w == COMMAND_TERMINATOR)
+    }
+
+    fn process_touch(&mut self, data: &[u8]) {
+        let page = data[0];
+        let component_id = data[1];
+        const PRESS_EVENT: u8 = 1;
+        const RELEASE_EVENT: u8 = 0;
+        let event = data[2];
+        if event != RELEASE_EVENT && event != PRESS_EVENT {
+            println!("Event not present RELEASE_EVENT, or PRESS_EVENT, returning");
+            return;
         }
     }
 
@@ -50,6 +90,17 @@ impl<'a> Screen<'a> {
         }
 
         println!("Written data: {}", command);
+    }
+
+    async fn set_page(&mut self, page: u8) {
+        let command = format!("page {}", page);
+
+        if let Err(err) = self.send(command.as_bytes()).await {
+            println!("Tx Error: {:?}", err);
+            return;
+        }
+        println!("Written data: {}", command);
+        println!("Page set to: {}", page);
     }
 
     async fn send(&mut self, command: &[u8]) -> Result<(), IoError> {
