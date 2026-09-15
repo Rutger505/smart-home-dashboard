@@ -55,7 +55,7 @@ impl<'a> Screen<'a> {
         };
 
         match *command_type {
-            TOUCH_EVENT_ID => self.process_touch(command_data),
+            TOUCH_EVENT_ID => self.process_touch(command_data).await,
             _ => {
                 println!("Command type not implemented")
             }
@@ -69,7 +69,7 @@ impl<'a> Screen<'a> {
             .position(|w| w == COMMAND_TERMINATOR)
     }
 
-    fn process_touch(&mut self, data: &[u8]) {
+    async fn process_touch(&mut self, data: &[u8]) {
         let page = data[0];
         let component_id = data[1];
         const PRESS_EVENT: u8 = 1;
@@ -79,6 +79,8 @@ impl<'a> Screen<'a> {
             println!("Event not present RELEASE_EVENT, or PRESS_EVENT, returning");
             return;
         }
+
+        self.set_page(1).await;
     }
 
     pub async fn update(&mut self, room_temp: u8) {
