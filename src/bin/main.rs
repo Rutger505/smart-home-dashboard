@@ -33,12 +33,10 @@ async fn main(spawner: Spawner) -> ! {
         .with_tx(peripherals.GPIO17)
         .with_rx(peripherals.GPIO16)
         .into_async();
-
     spawner.spawn(display(Screen::new(display_uart)).unwrap());
 
     loop {
-        Timer::after(Duration::from_secs(60)).await;
-        info!("Uptime: {}s", Instant::now().as_secs());
+        Timer::after_secs(1).await;
     }
 }
 
