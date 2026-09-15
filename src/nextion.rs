@@ -13,6 +13,7 @@ pub struct Screen<'a> {
     uart: Uart<'a, Async>,
     rx_buf: [u8; 128],
     commands: VecDeque<u8>,
+    page: u8,
 }
 
 impl<'a> Screen<'a> {
@@ -21,7 +22,10 @@ impl<'a> Screen<'a> {
             uart,
             rx_buf: [0; 128],
             commands: VecDeque::new(),
+            page: 0,
         }
+
+        // TODO: set actual page id.
     }
 
     pub async fn read(&mut self) {
@@ -80,10 +84,23 @@ impl<'a> Screen<'a> {
             return;
         }
 
-        self.set_page(1).await;
+        let ground_floor_button = 2;
+        let second_floor_button = 1;
+
+        self.set_page(if component_id == ground_floor_button {
+            0
+        } else if component_id == second_floor_button {
+            1
+        } else {
+            0
+        })
+        .await;
     }
 
     pub async fn update(&mut self, room_temp: u8) {
+        // TODO: Proper update method to carry information on which page and component data should be updated.
+        return;
+
         let command = format!("t1.txt=\"{}\"", room_temp);
 
         if let Err(err) = self.send(command.as_bytes()).await {
@@ -95,12 +112,19 @@ impl<'a> Screen<'a> {
     }
 
     async fn set_page(&mut self, page: u8) {
+        if self.page == page {
+            return;
+        }
+
         let command = format!("page {}", page);
 
         if let Err(err) = self.send(command.as_bytes()).await {
             println!("Tx Error: {:?}", err);
             return;
         }
+
+        self.page = page;
+
         println!("Written data: {}", command);
         println!("Page set to: {}", page);
     }
