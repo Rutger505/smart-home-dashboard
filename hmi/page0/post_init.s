@@ -1,15 +1,18 @@
 // House outline (400x240 display), centered on screen.
 // Corridor is a vertical strip (155,126 to 205,233, 50 wide x 107 tall,
-// 33% taller than before). Kitchen is an L: long arm vertical
+// 33% taller than before). Living room is an L: long arm vertical
 // (205,6 to 295,233, full height), short arm horizontal, sitting on
 // top of the corridor (155,6 to 205,126).
 // Staircase is a separate small module bumped out to the left of the
 // corridor, open into it.
 
-// Outer top wall (spans the kitchen's short arm and long arm)
-line 155,6,295,6,65535
-// Outer right wall (kitchen's long arm)
-line 295,6,295,233,65535
+// Outer top wall (spans the living room's short arm and long arm),
+// split for a window (210 to 240)
+line 155,6,210,6,65535
+line 240,6,295,6,65535
+// Outer right wall (living room's long arm), split for a window (100 to 130)
+line 295,6,295,100,65535
+line 295,130,295,233,65535
 
 // Outer bottom wall, split for the main entrance door gap
 line 155,233,160,233,65535
@@ -19,12 +22,20 @@ line 190,233,295,233,65535
 line 155,6,155,163,65535
 line 155,213,155,233,65535
 
-// Corridor / kitchen dividing walls
+// Corridor / living room dividing walls, split for a door (167 to 191)
 line 155,126,205,126,65535
-line 205,126,205,233,65535
+line 205,126,205,167,65535
+line 205,191,205,233,65535
 
 // Main entrance door leaf, swinging open into the corridor
 line 160,233,190,208,65535
+
+// Corridor -> living room door leaf, swinging open into the living room
+line 205,191,229,167,65535
+
+// Window leaves, both swinging open outward (out of the house)
+line 210,6,240,0,65535
+line 295,100,325,130,65535
 
 // Staircase module, small box bumped out to the left of the corridor,
 // 50 tall, open on its right side into the corridor
