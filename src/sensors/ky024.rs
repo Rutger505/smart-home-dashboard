@@ -1,11 +1,11 @@
-use super::input_pin::InputPin;
+use esp_hal::gpio::Input;
 
-pub struct Ky024<P> {
-    pin: P,
+pub struct Ky024<'d> {
+    pin: Input<'d>,
 }
 
-impl<P: InputPin> Ky024<P> {
-    pub fn new(pin: P) -> Self {
+impl<'d> Ky024<'d> {
+    pub fn new(pin: Input<'d>) -> Self {
         Self { pin }
     }
 
