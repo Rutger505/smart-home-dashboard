@@ -13,6 +13,7 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config, Uart};
 use log::LevelFilter;
 use smart_home_dashboard::display::display::Display;
+use smart_home_dashboard::display::hmi::Hmi;
 use smart_home_dashboard::display::nextion::Nextion;
 use smart_home_dashboard::floor::Floor;
 use smart_home_dashboard::logger;
@@ -37,10 +38,9 @@ async fn main(spawner: Spawner) -> ! {
         .with_tx(peripherals.GPIO17)
         .with_rx(peripherals.GPIO16)
         .into_async();
-    let nextion = Nextion::new(display_uart);
-
-    // TODO set actual page
-    let display = Display::new(nextion, 0);
+    let mut nextion = Nextion::new(display_uart).await;
+    let page = nextion.get_page().await;
+    let display = Display::new(nextion, page);
     spawner.spawn(display_task(display).unwrap());
 
     loop {

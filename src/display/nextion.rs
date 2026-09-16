@@ -11,6 +11,7 @@ use log::{debug, error, info};
 const COMMAND_TERMINATOR: [u8; 3] = [0xFF; 3];
 
 const TOUCH_EVENT_ID: u8 = 0x65;
+const SENDME_EVENT_ID: u8 = 0x66;
 
 const RELEASE_EVENT: u8 = 0;
 
@@ -22,16 +23,49 @@ pub struct Nextion<'a> {
 }
 
 impl<'a> Nextion<'a> {
-    pub fn new(uart: Uart<'a, Async>) -> Self {
-        Self {
+    pub async fn new(uart: Uart<'a, Async>) -> Self {
+        let mut instance = Self {
             uart,
             rx_buf: [0; 128],
             commands: VecDeque::new(),
             page: 0,
+        };
+
+        if let Some(actual_page) = instance.get_page_from_nextion().await {
+            instance.page = actual_page;
         }
 
-        // TODO: fetch actual page id.
+        instance
     }
+
+    async fn get_page_from_nextion(&mut self) -> Option<u8> {
+        self.send(b"sendme").await;
+
+        let mut page = self.page;
+
+        loop {
+            self.read().await;
+
+            if self.commands.is_empty() {
+                continue;
+            }
+
+            let Some(end) = self.find_terminator() else {
+                continue;
+            };
+
+            let command: Vec<u8> = self.commands.drain(..end).collect();
+            self.commands.drain(..COMMAND_TERMINATOR.len());
+
+            if command[0] == SENDME_EVENT_ID {
+                page = command[1];
+                break;
+            }
+        }
+
+        Some(page)
+    }
+
     async fn read(&mut self) {
         match self.uart.read_async(&mut self.rx_buf).await {
             Ok(size) => self.commands.extend(&self.rx_buf[0..size]),
@@ -58,6 +92,9 @@ impl<'a> Nextion<'a> {
 }
 
 impl Hmi for Nextion<'_> {
+    async fn get_page(&mut self) -> u8 {
+        return self.page;
+    }
     async fn show_page(&mut self, page: u8) {
         if self.page == page {
             return;
@@ -77,11 +114,6 @@ impl Hmi for Nextion<'_> {
     }
 
     async fn show_number(&mut self, component_name: &str, room_temp: u8) {
-        // TODO: Proper update method to carry information on which page and component data should be updated.
-        if self.page != 0 {
-            return;
-        }
-
         let command = format!("{component_name}.txt=\"{room_temp}\"");
 
         if let Err(err) = self.send(command.as_bytes()).await {

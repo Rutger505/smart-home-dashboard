@@ -16,7 +16,9 @@ impl<D> Display<D> {
 }
 
 impl<D: Hmi> Display<D> {
-    pub async fn render(&mut self, floors: &[Floor<'_>]) {}
+    pub async fn render(&mut self, floors: &[Floor<'_>]) {
+        // TODO implement
+    }
 
     pub async fn next_touch_event(&mut self) -> TouchEvent {
         self.hmi.next_touch_event().await
