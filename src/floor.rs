@@ -1,6 +1,8 @@
-pub struct Floor<'a> {
-    pub temperatures: &'a [u8],
-    pub doors: &'a [bool],
-    pub windows: &'a [bool],
-    pub lights: &'a [bool],
+use alloc::vec::Vec;
+
+pub struct Floor {
+    pub temperatures: Vec<u8>,
+    pub doors: Vec<bool>,
+    pub windows: Vec<bool>,
+    pub lights: Vec<bool>,
 }

@@ -3,8 +3,11 @@
 
 extern crate alloc;
 
+use alloc::vec;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Ticker, Timer};
 use esp_backtrace as _;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
@@ -19,6 +22,9 @@ use smart_home_dashboard::floor::Floor;
 use smart_home_dashboard::logger;
 
 esp_bootloader_esp_idf::esp_app_desc!();
+
+
+static SENSOR_DATA_SIGNAL: Signal<CriticalSectionRawMutex, [Floor; 2]> = Signal::new();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
@@ -48,23 +54,43 @@ async fn main(spawner: Spawner) -> ! {
     }
 }
 
+
 #[embassy_executor::task]
-async fn display_task(mut display: Display<Nextion<'static>>) {
+async fn sensor_data_task() {
     let rng = Rng::new();
 
-    let mut update_screen_ticker = Ticker::every(Duration::from_millis(100));
+    let mut poll_sensor_ticker = Ticker::every(Duration::from_millis(100));
 
     loop {
-        match select(display.next_touch_event(), update_screen_ticker.next()).await {
+        poll_sensor_ticker.next().await;
+
+
+        let data = [
+            Floor {
+                temperatures: vec![rng.random() as u8],
+                doors: vec![rng.random() / 2 % 2 == 0],
+                windows: vec![rng.random() / 2 % 2 == 0],
+                lights: vec![rng.random() / 2 % 2 == 0],
+            },
+            Floor {
+                temperatures: vec![rng.random() as u8],
+                doors: vec![rng.random() / 2 % 2 == 0],
+                windows: vec![rng.random() / 2 % 2 == 0],
+                lights: vec![rng.random() / 2 % 2 == 0],
+            }];
+
+        SENSOR_DATA_SIGNAL.signal(data);
+    }
+}
+
+#[embassy_executor::task]
+async fn display_task(mut display: Display<Nextion<'static>>) {
+    loop {
+        match select(display.next_touch_event(), SENSOR_DATA_SIGNAL.wait()).await {
             Either::First(event) => {
                 display.handle_touch_event(event).await;
             }
-            Either::Second(()) => display.render(&[Floor {
-                temperatures: &[rng.random() as u8],
-                doors: &[false],
-                windows: &[true],
-                lights: &[false],
-            }]).await,
+            Either::Second(data) => display.render(&data).await,
         }
     }
 }

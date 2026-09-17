@@ -19,7 +19,7 @@ impl<D> Display<D> {
 }
 
 impl<D: Hmi> Display<D> {
-    pub async fn render(&mut self, floors: &[Floor<'_>]) {
+    pub async fn render(&mut self, floors: &[Floor]) {
         let Some(floor) = floors.get(self.page as usize) else {
             error!("Floors passed to render does not contain current floor");
             return;
