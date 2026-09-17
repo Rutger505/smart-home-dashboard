@@ -33,9 +33,9 @@ There are no tests. The crate is `no_std` and has no test harness. Verify change
 `src/lib.rs` is a `no_std` library with `alloc`. `src/bin/main.rs` is the firmware entry point that wires hardware to the library.
 
 - `main` sets up the logger, a heap (`esp_alloc`, reclaimed RAM), esp-rtos and the display UART, then spawns `display_task`.
-- `display_task` runs a `select` loop. It handles touch events from the display and re-renders every 100 ms.
+- `display_task` runs a `select` loop. It handles touch events from the display and re-renders whenever `sensor_data_task` signals new (currently mocked) floor data.
 - `display::hmi::Hmi` is the trait for anything that can show pages and values and report touches. It uses `async fn` in a trait, so it is not object safe and callers take it as a generic.
-- `display::display::Display<D: Hmi>` holds the app logic. `render` takes a slice of `Floor` and draws the floor whose index equals the current page. Touching component id 1 switches to page 1, any other touch switches to page 0.
+- `display::display::Display<D: Hmi>` holds the app logic. `render` takes a slice of `Floor` and draws the floor whose index equals the current page. It keeps the last rendered floor and only sends values that changed, because every write repaints the component. A page change clears that cache, since loading a page resets its components. Touching component id 1 switches to page 1, any other touch switches to page 0.
 - `display::nextion::Nextion` implements `Hmi` over the Nextion serial protocol. Every command and response ends with `0xFF 0xFF 0xFF`. Incoming bytes go into a `VecDeque` and get split on that terminator. `0x65` is a touch event (page, component id, pressed). `0x66` is the reply to `sendme` (current page), which `Nextion::new` uses to sync the starting page.
 - `floor::Floor` is the per-floor state passed to `render`.
 - `sensors` wraps the DHT11 and KY-024 drivers. They are not wired into `main` yet.
@@ -43,11 +43,15 @@ There are no tests. The crate is `no_std` and has no test harness. Verify change
 
 ### Contract between firmware and display
 
-`Display::render` writes text to components by name, so the names in the Nextion project must match:
+`Display::render` writes to components by name, so the names in the Nextion project must match. All of them are text components with a solid background (`sta` = solid color). Index `i` counts within the floor.
 
-- `temperature_{i}`, `door_{i}`, `window_{i}`, `lights_{i}` (index within the floor)
-- Values sent: temperature as a number, doors and windows as `Open`/`Closed`, lights as `On`/`Off`
-- `show_value` rejects non-ASCII strings
+- `room_{i}`: a box filling the room's inside. `txt` is the temperature as `21C` (empty if the room has no sensor), `bco` is dim yellow (25344) when the light is on and black when off. `lights` sets the number of rooms, `temperatures[i]` belongs to room `i`.
+- `door_{i}`, `window_{i}`: a thin box covering the gap in the wall. `bco` is white (65535) when closed and red (63488) when open.
+- `show_value` rejects non-ASCII strings, so no degree sign.
+
+Boxes must not overlap any line from `post_init.s`. A component repaints its whole rectangle when updated and would erase the line, and post-init only runs again on page load.
+
+Page 0's living room is an L, so it has a second box `room_0x` for the short arm. Timer `tm0` copies `room_0.bco` to it (`hmi/page0/tm0_timer.s`).
 
 Page numbers equal floor indices. Renaming a component or reordering pages in the editor needs a matching firmware change.
 
@@ -55,4 +59,4 @@ Page numbers equal floor indices. Renaming a component or reordering pages in th
 
 The display is built by hand in Nextion Editor, not generated from code. `hmi/interface.HMI` is the editor project and `hmi/default.zi` is a pre-compiled font resource.
 
-Nextion Editor has no readable export. After changing a page's post-initialization code in the editor, copy that code into `hmi/pageN/post_init.s` (one folder per page, currently `page0` and `page1`). These files hold the drawing commands for the floor plan (walls, doors, windows, staircase) with comments giving the coordinates. Keep them in sync with the `.HMI` file so the layout can be reviewed and diffed in git.
+Nextion Editor has no readable export. After changing a page's post-initialization code in the editor, copy that code into `hmi/pageN/post_init.s` (one folder per page, currently `page0` and `page1`). These files hold the drawing commands for the floor plan (walls, doors, windows, staircase) with comments giving the coordinates. Other event code on a page goes in the same folder, named after the component and event (`tm0_timer.s`). Keep them in sync with the `.HMI` file so the layout can be reviewed and diffed in git.
