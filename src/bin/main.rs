@@ -3,7 +3,6 @@
 
 extern crate alloc;
 
-use alloc::vec;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -60,24 +59,27 @@ async fn main(spawner: Spawner) -> ! {
 async fn sensor_data_task() {
     let rng = Rng::new();
 
-    let mut poll_sensor_ticker = Ticker::every(Duration::from_millis(100));
+    let mut poll_sensor_ticker = Ticker::every(Duration::from_secs(1));
 
     loop {
         poll_sensor_ticker.next().await;
 
 
+        let temperatures = |count: usize| (0..count).map(|_| rng.random() as u8).collect();
+        let states = |count: usize| (0..count).map(|_| rng.random() / 2 % 2 == 0).collect();
+
         let data = [
             Floor {
-                temperatures: vec![rng.random() as u8],
-                doors: vec![rng.random() / 2 % 2 == 0],
-                windows: vec![rng.random() / 2 % 2 == 0],
-                lights: vec![rng.random() / 2 % 2 == 0],
+                temperatures: temperatures(1),
+                doors: states(2),
+                windows: states(2),
+                lights: states(2),
             },
             Floor {
-                temperatures: vec![rng.random() as u8],
-                doors: vec![rng.random() / 2 % 2 == 0],
-                windows: vec![rng.random() / 2 % 2 == 0],
-                lights: vec![rng.random() / 2 % 2 == 0],
+                temperatures: temperatures(4),
+                doors: states(4),
+                windows: states(4),
+                lights: states(4),
             }];
 
         SENSOR_DATA_SIGNAL.signal(data);

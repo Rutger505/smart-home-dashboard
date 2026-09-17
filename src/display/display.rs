@@ -59,12 +59,16 @@ impl<D: Hmi> Display<D> {
     }
 
     pub async fn handle_touch_event(&mut self, event: TouchEvent) {
+        let page = if event.component_id == SECOND_FLOOR_ID {
+            1
+        } else {
+            0
+        };
+
         self.hmi
-            .show_page(if event.component_id == SECOND_FLOOR_ID {
-                1
-            } else {
-                0
-            })
+            .show_page(page)
             .await;
+
+        self.page = page;
     }
 }
