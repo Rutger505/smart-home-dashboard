@@ -39,9 +39,16 @@ impl<'a> Nextion<'a> {
     }
 
     async fn get_page_from_nextion(&mut self) -> Option<u8> {
-        self.send(b"sendme").await;
+        loop {
+            match self.send(b"sendme").await {
+                Ok(()) => break,
+                Err(e) => {
+                    error!("Unable to send 'sendme' command, retrying. Error: {e}", );
+                }
+            }
+        }
 
-        let mut page = self.page;
+        let page;
 
         loop {
             self.read().await;
@@ -93,7 +100,7 @@ impl<'a> Nextion<'a> {
 
 impl Hmi for Nextion<'_> {
     async fn get_page(&mut self) -> u8 {
-        return self.page;
+        self.page
     }
     async fn show_page(&mut self, page: u8) {
         if self.page == page {
