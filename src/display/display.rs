@@ -1,6 +1,9 @@
 use crate::display::hmi::Hmi;
 use crate::display::touch_event::TouchEvent;
 use crate::floor::Floor;
+use alloc::format;
+use alloc::string::ToString;
+use log::error;
 
 const SECOND_FLOOR_ID: u8 = 1;
 
@@ -17,7 +20,27 @@ impl<D> Display<D> {
 
 impl<D: Hmi> Display<D> {
     pub async fn render(&mut self, floors: &[Floor<'_>]) {
-        // TODO implement
+        let Some(floor) = floors.get(self.page as usize) else {
+            error!("Floors passed to render does not contain current floor");
+            return;
+        };
+
+        for (i, temperature) in floor.temperatures.iter().enumerate() {
+            let component = format!("temperature_{i}");
+            self.hmi.show_value(&component, &temperature.to_string()).await;
+        }
+        for (i, state) in floor.doors.iter().enumerate() {
+            let component = format!("door_{i}");
+            self.hmi.show_value(&component, if *state { "Closed" } else { "Open" }).await;
+        }
+        for (i, state) in floor.windows.iter().enumerate() {
+            let component = format!("window_{i}");
+            self.hmi.show_value(&component, if *state { "Closed" } else { "Open" }).await;
+        }
+        for (i, state) in floor.lights.iter().enumerate() {
+            let component = format!("lights_{i}");
+            self.hmi.show_value(&component, if *state { "On" } else { "Off" }).await;
+        }
     }
 
     pub async fn next_touch_event(&mut self) -> TouchEvent {

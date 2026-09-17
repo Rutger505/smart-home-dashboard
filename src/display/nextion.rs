@@ -113,8 +113,13 @@ impl Hmi for Nextion<'_> {
         info!("Page set to: {}", page);
     }
 
-    async fn show_number(&mut self, component_name: &str, room_temp: u8) {
-        let command = format!("{component_name}.txt=\"{room_temp}\"");
+    async fn show_value(&mut self, component_name: &str, value: &str) {
+        if !value.is_ascii() {
+            error!("Only ascii allowed, value passed: {}", value);
+            return;
+        }
+
+        let command = format!("{component_name}.txt=\"{value}\"");
 
         if let Err(err) = self.send(command.as_bytes()).await {
             error!("Tx Error: {:?}", err);
