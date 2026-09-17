@@ -5,6 +5,9 @@
 // (205,63 to 295,233), each opening into the corridor through its
 // own door. Each bedroom has one window. Staircase box is unchanged
 // from page0: same position, size, and opening into the corridor.
+// Door and window gaps stay open here. Small door_N and window_N text
+// components cover them, and the firmware colors them white (closed) or
+// red (open).
 
 // Outer top wall, split for the top bedroom's window (210 to 240)
 line 155,6,210,6,65535
@@ -45,18 +48,6 @@ line 205,210,205,233,65535
 // Bedroom / bedroom dividing walls (solid, rooms don't connect to each other)
 line 205,119,295,119,65535
 line 205,176,295,176,65535
-
-// Door leaves, each swinging open into the bedroom it enters
-line 170,63,182,51,65535
-line 205,85,217,97,65535
-line 205,141,217,153,65535
-line 205,198,217,210,65535
-
-// Window leaves, all swinging open outward (out of the house)
-line 210,6,240,0,65535
-line 295,80,315,100,65535
-line 295,135,315,155,65535
-line 295,195,315,215,65535
 
 // Staircase module, unchanged from page0: same box, same opening
 // into the corridor

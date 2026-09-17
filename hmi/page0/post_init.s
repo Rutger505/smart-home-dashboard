@@ -5,6 +5,9 @@
 // top of the corridor (155,6 to 205,126).
 // Staircase is a separate small module bumped out to the left of the
 // corridor, open into it.
+// Door and window gaps stay open here. Small door_N and window_N text
+// components cover them, and the firmware colors them white (closed) or
+// red (open).
 
 // Outer top wall (spans the living room's short arm and long arm),
 // split for a window (210 to 240)
@@ -26,16 +29,6 @@ line 155,213,155,233,65535
 line 155,126,205,126,65535
 line 205,126,205,167,65535
 line 205,191,205,233,65535
-
-// Main entrance door leaf, swinging open into the corridor
-line 160,233,190,208,65535
-
-// Corridor -> living room door leaf, swinging open into the living room
-line 205,191,229,167,65535
-
-// Window leaves, both swinging open outward (out of the house)
-line 210,6,240,0,65535
-line 295,100,325,130,65535
 
 // Staircase module, small box bumped out to the left of the corridor,
 // 50 tall, open on its right side into the corridor
