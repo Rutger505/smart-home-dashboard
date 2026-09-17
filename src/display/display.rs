@@ -14,7 +14,10 @@ pub struct Display<D> {
 
 impl<D> Display<D> {
     pub fn new(hmi: D, current_page: u8) -> Self {
-        Self { hmi, page: current_page }
+        Self {
+            hmi,
+            page: current_page,
+        }
     }
 }
 
@@ -27,19 +30,27 @@ impl<D: Hmi> Display<D> {
 
         for (i, temperature) in floor.temperatures.iter().enumerate() {
             let component = format!("temperature_{i}");
-            self.hmi.show_value(&component, &temperature.to_string()).await;
+            let temperature_str = temperature.to_string();
+            let text = format!("{temperature_str} C");
+            self.hmi.show_value(&component, &text).await;
         }
         for (i, state) in floor.doors.iter().enumerate() {
             let component = format!("door_{i}");
-            self.hmi.show_value(&component, if *state { "Closed" } else { "Open" }).await;
+            self.hmi
+                .show_value(&component, if *state { "Closed" } else { "Open" })
+                .await;
         }
         for (i, state) in floor.windows.iter().enumerate() {
             let component = format!("window_{i}");
-            self.hmi.show_value(&component, if *state { "Closed" } else { "Open" }).await;
+            self.hmi
+                .show_value(&component, if *state { "Closed" } else { "Open" })
+                .await;
         }
         for (i, state) in floor.lights.iter().enumerate() {
             let component = format!("lights_{i}");
-            self.hmi.show_value(&component, if *state { "On" } else { "Off" }).await;
+            self.hmi
+                .show_value(&component, if *state { "On" } else { "Off" })
+                .await;
         }
     }
 
@@ -48,12 +59,12 @@ impl<D: Hmi> Display<D> {
     }
 
     pub async fn handle_touch_event(&mut self, event: TouchEvent) {
-        self.hmi.show_page(if event.component_id == SECOND_FLOOR_ID {
-            1
-        } else {
-            0
-        })
+        self.hmi
+            .show_page(if event.component_id == SECOND_FLOOR_ID {
+                1
+            } else {
+                0
+            })
             .await;
     }
 }
-

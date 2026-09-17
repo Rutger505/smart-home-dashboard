@@ -48,6 +48,7 @@ async fn main(spawner: Spawner) -> ! {
     let page = nextion.get_page().await;
     let display = Display::new(nextion, page);
     spawner.spawn(display_task(display).unwrap());
+    spawner.spawn(sensor_data_task().unwrap());
 
     loop {
         Timer::after_secs(1).await;
