@@ -13,7 +13,7 @@ use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config, Uart};
-use log::LevelFilter;
+use log::{LevelFilter, debug};
 use smart_home_dashboard::display::display::Display;
 use smart_home_dashboard::display::hmi::Hmi;
 use smart_home_dashboard::display::nextion::Nextion;
@@ -38,10 +38,11 @@ async fn main(spawner: Spawner) -> ! {
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
 
 
-    let display_uart = Uart::new(peripherals.UART2, Config::default().with_baudrate(9600))
+    let display_uart = Uart::new(peripherals.UART2, Config::default().with_baudrate(921600))
         .expect("Could not initialize UART for display")
         .with_tx(peripherals.GPIO17)
         .with_rx(peripherals.GPIO16)
+
         .into_async();
     let mut nextion = Nextion::new(display_uart).await;
     let page = nextion.get_page().await;
@@ -59,7 +60,7 @@ async fn main(spawner: Spawner) -> ! {
 async fn sensor_data_task() {
     let rng = Rng::new();
 
-    let mut poll_sensor_ticker = Ticker::every(Duration::from_secs(1));
+    let mut poll_sensor_ticker = Ticker::every(Duration::from_secs(3));
 
     loop {
         poll_sensor_ticker.next().await;
@@ -81,6 +82,8 @@ async fn sensor_data_task() {
                 windows: states(4),
                 lights: states(4),
             }];
+
+        debug!("Sending data to display_task");
 
         SENSOR_DATA_SIGNAL.signal(data);
     }

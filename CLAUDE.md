@@ -51,7 +51,7 @@ There are no tests. The crate is `no_std` and has no test harness. Verify change
 
 Boxes must not overlap any line from `post_init.s`. A component repaints its whole rectangle when updated and would erase the line, and post-init only runs again on page load.
 
-Page 0's living room is an L, so it has a second box `room_0x` for the short arm. Timer `tm0` copies `room_0.bco` to it (`hmi/page0/tm0_timer.s`).
+Page 0's living room is an L, so it has a second box `room_0x` for the short arm. `ROOM_EXTENSIONS` in `display.rs` lists it, and `render` gives it the same `bco` as `room_0`.
 
 Page numbers equal floor indices. Renaming a component or reordering pages in the editor needs a matching firmware change.
 
@@ -59,4 +59,6 @@ Page numbers equal floor indices. Renaming a component or reordering pages in th
 
 The display is built by hand in Nextion Editor, not generated from code. `hmi/interface.HMI` is the editor project and `hmi/default.zi` is a pre-compiled font resource.
 
-Nextion Editor has no readable export. After changing a page's post-initialization code in the editor, copy that code into `hmi/pageN/post_init.s` (one folder per page, currently `page0` and `page1`). These files hold the drawing commands for the floor plan (walls, doors, windows, staircase) with comments giving the coordinates. Other event code on a page goes in the same folder, named after the component and event (`tm0_timer.s`). Keep them in sync with the `.HMI` file so the layout can be reviewed and diffed in git.
+Nextion Editor has no readable export. After changing a page's post-initialization code in the editor, copy that code into `hmi/pageN/post_init.s` (one folder per page, currently `page0` and `page1`). These files hold the drawing commands for the floor plan (walls, doors, windows, staircase) with comments giving the coordinates. Other event code on a page goes in the same folder, named after the component and event (for example `b0_press.s`). Keep them in sync with the `.HMI` file so the layout can be reviewed and diffed in git.
+
+`hmi/stairs.py` generates the staircase treads. Change the numbers in the script and paste its output instead of editing the lines by hand.

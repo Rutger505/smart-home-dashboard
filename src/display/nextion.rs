@@ -136,6 +136,17 @@ impl Hmi for Nextion<'_> {
         debug!("Written data: {}", command);
     }
 
+    async fn set_number(&mut self, component_name: &str, attribute: &str, value: u32) {
+        let command = format!("{component_name}.{attribute}={value}");
+
+        if let Err(err) = self.send(command.as_bytes()).await {
+            error!("Tx Error: {:?}", err);
+            return;
+        }
+
+        debug!("Written data: {}", command);
+    }
+
     async fn next_touch_event(&mut self) -> TouchEvent {
         let command_data: [u8; 3];
 

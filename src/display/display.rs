@@ -2,10 +2,18 @@ use crate::display::hmi::Hmi;
 use crate::display::touch_event::TouchEvent;
 use crate::floor::Floor;
 use alloc::format;
-use alloc::string::ToString;
 use log::error;
 
 const SECOND_FLOOR_ID: u8 = 1;
+
+const WHITE: u32 = 65535;
+const RED: u32 = 63488;
+const BLACK: u32 = 0;
+const DIM_YELLOW: u32 = 25344;
+
+/// Extra boxes that belong to a room, as [page](room, component). The
+/// living room on page 0 is an L, drawn as two boxes.
+const ROOM_EXTENSIONS: &[&[(usize, &str)]] = &[&[(0, "room_0x")]];
 
 pub struct Display<D> {
     hmi: D,
@@ -28,28 +36,38 @@ impl<D: Hmi> Display<D> {
             return;
         };
 
-        for (i, temperature) in floor.temperatures.iter().enumerate() {
-            let component = format!("temperature_{i}");
-            let temperature_str = temperature.to_string();
-            let text = format!("{temperature_str} C");
+        for (i, light) in floor.lights.iter().enumerate() {
+            let component = format!("room_{i}");
+            let text = floor
+                .temperatures
+                .get(i)
+                .map(|t| format!("{t}C"))
+                .unwrap_or_default();
+            self.hmi
+                .set_number(&component, "bco", light_color(*light))
+                .await;
             self.hmi.show_value(&component, &text).await;
         }
-        for (i, state) in floor.doors.iter().enumerate() {
-            let component = format!("door_{i}");
-            self.hmi
-                .show_value(&component, if *state { "Closed" } else { "Open" })
-                .await;
+        if let Some(room_extensions) = ROOM_EXTENSIONS.get(self.page as usize) {
+            for (room, component) in room_extensions.iter() {
+                if let Some(light) = floor.lights.get(*room)
+                {
+                    self.hmi
+                        .set_number(component, "bco", light_color(*light))
+                        .await;
+                }
+            }
         }
-        for (i, state) in floor.windows.iter().enumerate() {
-            let component = format!("window_{i}");
+
+        self.render_openings("door", &floor.doors).await;
+        self.render_openings("window", &floor.windows).await;
+    }
+
+    async fn render_openings(&mut self, kind: &str, closed: &[bool]) {
+        for (i, state) in closed.iter().enumerate() {
+            let component = format!("{kind}_{i}");
             self.hmi
-                .show_value(&component, if *state { "Closed" } else { "Open" })
-                .await;
-        }
-        for (i, state) in floor.lights.iter().enumerate() {
-            let component = format!("lights_{i}");
-            self.hmi
-                .show_value(&component, if *state { "On" } else { "Off" })
+                .set_number(&component, "bco", if *state { WHITE } else { RED })
                 .await;
         }
     }
@@ -65,10 +83,12 @@ impl<D: Hmi> Display<D> {
             0
         };
 
-        self.hmi
-            .show_page(page)
-            .await;
+        self.hmi.show_page(page).await;
 
         self.page = page;
     }
+}
+
+fn light_color(on: bool) -> u32 {
+    if on { DIM_YELLOW } else { BLACK }
 }
