@@ -65,7 +65,7 @@ async fn sensor_data_task() {
         poll_sensor_ticker.next().await;
 
 
-        let temperatures = |count: usize| (0..count).map(|_| rng.random() as u8).collect();
+        let temperatures = |count: usize| (0..count).map(|_| (15 + rng.random() % 15) as u8).collect();
         let states = |count: usize| (0..count).map(|_| rng.random() / 2 % 2 == 0).collect();
 
         let data = [
