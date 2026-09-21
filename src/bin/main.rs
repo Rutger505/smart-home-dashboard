@@ -76,7 +76,7 @@ async fn sensor_data_task() {
 
         let data = [
             Floor {
-                temperatures: temperatures(1),
+                temperatures: temperatures(2),
                 doors: states(2),
                 windows: states(2),
                 lights: states(2),
