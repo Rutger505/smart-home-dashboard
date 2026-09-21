@@ -7,7 +7,6 @@ use esp_hal::Async;
 use esp_hal::uart::{IoError, Uart};
 use log::{debug, error, info, trace};
 
-
 const COMMAND_TERMINATOR: [u8; 3] = [0xFF; 3];
 
 const TOUCH_EVENT_ID: u8 = 0x65;
@@ -45,7 +44,7 @@ impl<'a> Nextion<'a> {
             match self.send(b"sendme").await {
                 Ok(()) => break,
                 Err(e) => {
-                    error!("Unable to send 'sendme' command, retrying. Error: {e}", );
+                    error!("Unable to send 'sendme' command, retrying. Error: {e}",);
                 }
             }
         }
@@ -79,7 +78,10 @@ impl<'a> Nextion<'a> {
     }
 
     async fn read(&mut self) {
-        trace!("Waiting for UART data, {} bytes buffered", self.commands.len());
+        trace!(
+            "Waiting for UART data, {} bytes buffered",
+            self.commands.len()
+        );
         match self.uart.read_async(&mut self.rx_buf).await {
             Ok(size) => {
                 trace!("UART read {} bytes: {:02X?}", size, &self.rx_buf[0..size]);
@@ -97,12 +99,11 @@ impl<'a> Nextion<'a> {
             .position(|w| w == COMMAND_TERMINATOR)
     }
 
-
     async fn send(&mut self, command: &[u8]) -> Result<(), IoError> {
         trace!("UART write {:02X?}", command);
         self.uart.write_async(command).await?;
         self.uart.write_async(&COMMAND_TERMINATOR).await?;
-        
+
         trace!("UART flush");
         self.uart.flush_async().await?;
         trace!("UART write done");

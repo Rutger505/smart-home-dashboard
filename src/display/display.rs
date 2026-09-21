@@ -52,8 +52,7 @@ impl<D: Hmi> Display<D> {
         }
         if let Some(room_extensions) = ROOM_EXTENSIONS.get(self.page as usize) {
             for (room, component) in room_extensions.iter() {
-                if let Some(light) = floor.lights.get(*room)
-                {
+                if let Some(light) = floor.lights.get(*room) {
                     self.hmi
                         .set_number(component, "bco", light_color(*light))
                         .await;
@@ -84,7 +83,7 @@ impl<D: Hmi> Display<D> {
             "Touch event: page {}, component {}, pressed {}",
             event.page, event.component_id, event.pressed
         );
-        
+
         let page = if event.component_id == SECOND_FLOOR_ID {
             1
         } else {

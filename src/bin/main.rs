@@ -22,7 +22,6 @@ use smart_home_dashboard::logger;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-
 static SENSOR_DATA_SIGNAL: Signal<CriticalSectionRawMutex, [Floor; 2]> = Signal::new();
 
 #[esp_rtos::main]
@@ -38,15 +37,13 @@ async fn main(spawner: Spawner) -> ! {
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
     trace!("esp-rtos started");
 
-
     let display_uart = Uart::new(peripherals.UART2, Config::default().with_baudrate(921600))
         .expect("Could not initialize UART for display")
         .with_tx(peripherals.GPIO17)
         .with_rx(peripherals.GPIO16)
-
         .into_async();
     trace!("Display UART ready");
-    
+
     let mut nextion = Nextion::new(display_uart).await;
     let page = nextion.get_page().await;
     trace!("Nextion ready on page {}", page);
@@ -61,7 +58,6 @@ async fn main(spawner: Spawner) -> ! {
     }
 }
 
-
 #[embassy_executor::task]
 async fn sensor_data_task() {
     let rng = Rng::new();
@@ -72,8 +68,8 @@ async fn sensor_data_task() {
         poll_sensor_ticker.next().await;
         trace!("Sensor tick");
 
-
-        let temperatures = |count: usize| (0..count).map(|_| (15 + rng.random() % 15) as u8).collect();
+        let temperatures =
+            |count: usize| (0..count).map(|_| (15 + rng.random() % 15) as u8).collect();
         let states = |count: usize| (0..count).map(|_| rng.random() / 2 % 2 == 0).collect();
 
         let data = [
@@ -88,7 +84,8 @@ async fn sensor_data_task() {
                 doors: states(4),
                 windows: states(4),
                 lights: states(4),
-            }];
+            },
+        ];
 
         debug!("Sending data to display_task");
 
