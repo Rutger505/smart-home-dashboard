@@ -8,7 +8,7 @@ use embassy_time::{Duration, Timer};
 
 const SECOND_FLOOR_ID: u8 = 1;
 
-const ROOM_REPAINT_DELAY: Duration = Duration::from_millis(20);
+const ROOM_REPAINT_DELAY: Duration = Duration::from_millis(40);
 
 const WHITE: u32 = 65535;
 const BLACK: u32 = 0;
