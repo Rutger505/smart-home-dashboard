@@ -24,7 +24,7 @@ cargo fmt --all -- --check                             # CI format check
 cargo clippy --all-features --workspace -- -D warnings # CI lint, warnings fail the build
 ```
 
-There are no tests. The crate is `no_std` and has no test harness. Verify changes by flashing the board and reading the serial log. `wokwi.toml` and `diagram.json` let you run the debug build in the Wokwi simulator, though the simulated board has no display attached.
+There are no tests. The crate is `no_std` and has no test harness. Verify changes by flashing the board and reading the serial log.
 
 `.clippy.toml` sets `stack-size-threshold = 1024`, so clippy flags large stack values. Put big buffers on the heap or in a struct.
 
