@@ -1,3 +1,4 @@
+use crate::display::floor_plan::{Opening, doors, floor_plan, windows};
 use crate::display::hmi::Hmi;
 use crate::display::touch_event::TouchEvent;
 use crate::floor::Floor;
@@ -7,7 +8,6 @@ use log::{error, trace};
 const SECOND_FLOOR_ID: u8 = 1;
 
 const WHITE: u32 = 65535;
-const RED: u32 = 63488;
 const BLACK: u32 = 0;
 const DIM_YELLOW: u32 = 25344;
 
@@ -30,6 +30,12 @@ impl<D> Display<D> {
 }
 
 impl<D: Hmi> Display<D> {
+    pub async fn draw_floor_plan(&mut self) {
+        for line in floor_plan(self.page) {
+            self.hmi.draw_line(line, WHITE).await;
+        }
+    }
+
     pub async fn render(&mut self, floors: &[Floor]) {
         trace!("Render start, page {}", self.page);
 
@@ -37,6 +43,9 @@ impl<D: Hmi> Display<D> {
             error!("Floors passed to render does not contain current floor");
             return;
         };
+
+        self.erase_openings(doors(self.page)).await;
+        self.erase_openings(windows(self.page)).await;
 
         for (i, light) in floor.lights.iter().enumerate() {
             let component = format!("room_{i}");
@@ -60,16 +69,30 @@ impl<D: Hmi> Display<D> {
             }
         }
 
-        self.render_openings("door", &floor.doors).await;
-        self.render_openings("window", &floor.windows).await;
+        // Draw door on top of light background for rooms
+        self.draw_openings(doors(self.page), &floor.doors).await;
+        self.draw_openings(windows(self.page), &floor.windows).await;
         trace!("Render done, page {}", self.page);
     }
 
-    async fn render_openings(&mut self, kind: &str, closed: &[bool]) {
-        for (i, state) in closed.iter().enumerate() {
-            let component = format!("{kind}_{i}");
+    async fn erase_openings(&mut self, openings: &[Opening]) {
+        for opening in openings {
+            self.hmi.draw_line(opening.opened(), BLACK).await;
+            self.hmi.draw_line(opening.closed(), BLACK).await;
+        }
+    }
+
+    async fn draw_openings(&mut self, openings: &[Opening], closed: &[bool]) {
+        for (opening, closed) in openings.iter().zip(closed) {
             self.hmi
-                .set_number(&component, "bco", if *state { WHITE } else { RED })
+                .draw_line(
+                    if *closed {
+                        opening.closed()
+                    } else {
+                        opening.opened()
+                    },
+                    WHITE,
+                )
                 .await;
         }
     }
@@ -91,8 +114,8 @@ impl<D: Hmi> Display<D> {
         };
 
         self.hmi.show_page(page).await;
-
         self.page = page;
+        self.draw_floor_plan().await;
         trace!("Touch event handled, page {}", page);
     }
 }

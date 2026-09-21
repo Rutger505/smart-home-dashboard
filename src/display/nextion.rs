@@ -1,3 +1,4 @@
+use crate::display::floor_plan::Line;
 use crate::display::hmi::Hmi;
 use crate::display::touch_event::TouchEvent;
 use alloc::collections::VecDeque;
@@ -153,6 +154,18 @@ impl Hmi for Nextion<'_> {
 
     async fn set_number(&mut self, component_name: &str, attribute: &str, value: u32) {
         let command = format!("{component_name}.{attribute}={value}");
+
+        if let Err(err) = self.send(command.as_bytes()).await {
+            error!("Tx Error: {:?}", err);
+            return;
+        }
+
+        debug!("Written data: {}", command);
+    }
+
+    async fn draw_line(&mut self, line: Line, color: u32) {
+        let Line { x1, y1, x2, y2 } = line;
+        let command = format!("line {x1},{y1},{x2},{y2},{color}");
 
         if let Err(err) = self.send(command.as_bytes()).await {
             error!("Tx Error: {:?}", err);

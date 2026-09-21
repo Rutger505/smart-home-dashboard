@@ -26,7 +26,7 @@ static SENSOR_DATA_SIGNAL: Signal<CriticalSectionRawMutex, [Floor; 2]> = Signal:
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
-    logger::init(LevelFilter::Trace);
+    logger::init(LevelFilter::Debug);
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
 
@@ -84,10 +84,10 @@ async fn sensor_data_task() {
                 lights: states(2),
             },
             Floor {
-                temperatures: temperatures(4),
+                temperatures: temperatures(5),
                 doors: states(4),
                 windows: states(4),
-                lights: states(4),
+                lights: states(5),
             },
         ];
 
@@ -99,6 +99,8 @@ async fn sensor_data_task() {
 
 #[embassy_executor::task]
 async fn display_task(mut display: Display<Nextion<'static>>) {
+    display.draw_floor_plan().await;
+
     loop {
         trace!("display_task waiting for touch or sensor data");
         match select(display.next_touch_event(), SENSOR_DATA_SIGNAL.wait()).await {
@@ -108,7 +110,7 @@ async fn display_task(mut display: Display<Nextion<'static>>) {
             }
             Either::Second(data) => {
                 trace!("display_task got sensor data");
-                display.render(&data).await
+                display.render(&data).await;
             }
         }
     }
