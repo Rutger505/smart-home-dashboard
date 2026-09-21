@@ -4,8 +4,11 @@ use crate::display::touch_event::TouchEvent;
 use crate::floor::Floor;
 use alloc::format;
 use defmt::{error, trace};
+use embassy_time::{Duration, Timer};
 
 const SECOND_FLOOR_ID: u8 = 1;
+
+const ROOM_REPAINT_DELAY: Duration = Duration::from_millis(20);
 
 const WHITE: u32 = 65535;
 const BLACK: u32 = 0;
@@ -69,7 +72,9 @@ impl<D: Hmi> Display<D> {
             }
         }
 
-        // Draw door on top of light background for rooms
+        // The Nextion can still be repainting the room boxes when the door
+        // commands arrive, and would then paint the background over a door.
+        Timer::after(ROOM_REPAINT_DELAY).await;
         self.draw_openings(doors(self.page), &floor.doors).await;
         self.draw_openings(windows(self.page), &floor.windows).await;
         trace!("Render done, page {}", self.page);
