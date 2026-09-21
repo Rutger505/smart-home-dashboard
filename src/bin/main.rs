@@ -70,7 +70,7 @@ async fn sensor_data_task() {
 
         let temperatures =
             |count: usize| (0..count).map(|_| (15 + rng.random() % 15) as u8).collect();
-        let states = |count: usize| (0..count).map(|_| rng.random() / 2 % 2 == 0).collect();
+        let states = |count: usize| (0..count).map(|_| (rng.random() / 2).is_multiple_of(2)).collect();
 
         let data = [
             Floor {
