@@ -22,6 +22,8 @@ use smart_home_dashboard::floor::Floor;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+const LOG_BAUD_RATE: u32 = 921600;
+
 static SENSOR_DATA_SIGNAL: Signal<CriticalSectionRawMutex, [Floor; 2]> = Signal::new();
 
 #[esp_rtos::main]
@@ -29,6 +31,17 @@ async fn main(spawner: Spawner) -> ! {
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
 
     let peripherals = esp_hal::init(esp_hal::Config::default());
+
+    // esp-println writes to the UART0 registers directly and keeps the ROM's
+    // 115200 baud unless something reconfigures it. Keep this alive, because
+    // dropping it may turn the peripheral off.
+    let _log_uart = Uart::new(
+        peripherals.UART0,
+        Config::default().with_baudrate(LOG_BAUD_RATE),
+    )
+    .expect("Could not initialize UART for logging")
+    .with_tx(peripherals.GPIO1)
+    .with_rx(peripherals.GPIO3);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
