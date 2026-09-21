@@ -2,7 +2,7 @@ use crate::display::hmi::Hmi;
 use crate::display::touch_event::TouchEvent;
 use crate::floor::Floor;
 use alloc::format;
-use log::error;
+use log::{error, trace};
 
 const SECOND_FLOOR_ID: u8 = 1;
 
@@ -31,6 +31,8 @@ impl<D> Display<D> {
 
 impl<D: Hmi> Display<D> {
     pub async fn render(&mut self, floors: &[Floor]) {
+        trace!("Render start, page {}", self.page);
+
         let Some(floor) = floors.get(self.page as usize) else {
             error!("Floors passed to render does not contain current floor");
             return;
@@ -61,6 +63,7 @@ impl<D: Hmi> Display<D> {
 
         self.render_openings("door", &floor.doors).await;
         self.render_openings("window", &floor.windows).await;
+        trace!("Render done, page {}", self.page);
     }
 
     async fn render_openings(&mut self, kind: &str, closed: &[bool]) {
@@ -77,6 +80,11 @@ impl<D: Hmi> Display<D> {
     }
 
     pub async fn handle_touch_event(&mut self, event: TouchEvent) {
+        trace!(
+            "Touch event: page {}, component {}, pressed {}",
+            event.page, event.component_id, event.pressed
+        );
+        
         let page = if event.component_id == SECOND_FLOOR_ID {
             1
         } else {
@@ -86,6 +94,7 @@ impl<D: Hmi> Display<D> {
         self.hmi.show_page(page).await;
 
         self.page = page;
+        trace!("Touch event handled, page {}", page);
     }
 }
 

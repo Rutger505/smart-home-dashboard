@@ -1,6 +1,7 @@
 use dht_sensor::{DhtError, dht11};
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{InputPin, OutputPin};
+use log::trace;
 
 use super::reading::Reading;
 
@@ -14,6 +15,9 @@ impl<P: InputPin + OutputPin> Dht11<P> {
     }
 
     pub fn read(&mut self, delay: &mut impl DelayNs) -> Result<Reading, DhtError<P::Error>> {
-        dht11::blocking::read(delay, &mut self.pin).map(Reading::from)
+        trace!("DHT11 read start");
+        let reading = dht11::blocking::read(delay, &mut self.pin).map(Reading::from);
+        trace!("DHT11 read done, ok: {}", reading.is_ok());
+        reading
     }
 }

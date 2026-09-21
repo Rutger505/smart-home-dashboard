@@ -5,7 +5,7 @@ use alloc::format;
 use alloc::vec::Vec;
 use esp_hal::Async;
 use esp_hal::uart::{IoError, Uart};
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 
 
 const COMMAND_TERMINATOR: [u8; 3] = [0xFF; 3];
@@ -39,6 +39,8 @@ impl<'a> Nextion<'a> {
     }
 
     async fn get_page_from_nextion(&mut self) -> Option<u8> {
+        trace!("Requesting current page with 'sendme'");
+
         loop {
             match self.send(b"sendme").await {
                 Ok(()) => break,
@@ -64,18 +66,25 @@ impl<'a> Nextion<'a> {
             let command: Vec<u8> = self.commands.drain(..end).collect();
             self.commands.drain(..COMMAND_TERMINATOR.len());
 
+            trace!("Received command while waiting for page: {:02X?}", command);
+
             if command[0] == SENDME_EVENT_ID {
                 page = command[1];
                 break;
             }
         }
 
+        trace!("Nextion reports page {}", page);
         Some(page)
     }
 
     async fn read(&mut self) {
+        trace!("Waiting for UART data, {} bytes buffered", self.commands.len());
         match self.uart.read_async(&mut self.rx_buf).await {
-            Ok(size) => self.commands.extend(&self.rx_buf[0..size]),
+            Ok(size) => {
+                trace!("UART read {} bytes: {:02X?}", size, &self.rx_buf[0..size]);
+                self.commands.extend(&self.rx_buf[0..size])
+            }
 
             Err(e) => error!("UART Rx Error: {:?}", e),
         }
@@ -90,9 +99,13 @@ impl<'a> Nextion<'a> {
 
 
     async fn send(&mut self, command: &[u8]) -> Result<(), IoError> {
+        trace!("UART write {:02X?}", command);
         self.uart.write_async(command).await?;
         self.uart.write_async(&COMMAND_TERMINATOR).await?;
+        
+        trace!("UART flush");
         self.uart.flush_async().await?;
+        trace!("UART write done");
 
         Ok(())
     }
@@ -104,6 +117,7 @@ impl Hmi for Nextion<'_> {
     }
     async fn show_page(&mut self, page: u8) {
         if self.page == page {
+            trace!("Already on page {}", page);
             return;
         }
 
@@ -150,6 +164,7 @@ impl Hmi for Nextion<'_> {
     async fn next_touch_event(&mut self) -> TouchEvent {
         let command_data: [u8; 3];
 
+        trace!("Waiting for touch event");
         loop {
             self.read().await;
 
@@ -164,12 +179,15 @@ impl Hmi for Nextion<'_> {
             let command: Vec<u8> = self.commands.drain(..end).collect();
             self.commands.drain(..COMMAND_TERMINATOR.len());
 
+            trace!("Received command while waiting for touch: {:02X?}", command);
+
             if command[0] == TOUCH_EVENT_ID {
                 command_data = [command[1], command[2], command[3]];
                 break;
             }
         }
 
+        trace!("Touch event data: {:02X?}", command_data);
         TouchEvent {
             page: command_data[0],
             component_id: command_data[1],

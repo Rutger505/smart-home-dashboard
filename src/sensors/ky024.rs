@@ -1,4 +1,5 @@
 use esp_hal::gpio::Input;
+use log::trace;
 
 pub struct Ky024<'d> {
     pin: Input<'d>,
@@ -10,6 +11,8 @@ impl<'d> Ky024<'d> {
     }
 
     pub fn detects_magnet(&self) -> bool {
-        self.pin.is_high()
+        let magnet = self.pin.is_high();
+        trace!("KY-024 detects magnet: {}", magnet);
+        magnet
     }
 }
