@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+use defmt::{debug, trace};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -13,12 +14,11 @@ use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config, Uart};
-use log::{LevelFilter, debug, trace};
+use esp_println as _;
 use smart_home_dashboard::display::display::Display;
 use smart_home_dashboard::display::hmi::Hmi;
 use smart_home_dashboard::display::nextion::Nextion;
 use smart_home_dashboard::floor::Floor;
-use smart_home_dashboard::logger;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -26,8 +26,6 @@ static SENSOR_DATA_SIGNAL: Signal<CriticalSectionRawMutex, [Floor; 2]> = Signal:
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
-    logger::init(LevelFilter::Debug);
-
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
 
     let peripherals = esp_hal::init(esp_hal::Config::default());

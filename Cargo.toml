@@ -13,7 +13,7 @@ path = "./src/bin/main.rs"
 async_fn_in_trait = "allow"
 
 [dependencies]
-esp-hal = { version = "~1.1.2", features = ["esp32", "unstable"] }
+esp-hal = { version = "~1.1.2", features = ["defmt", "esp32", "unstable"] }
 esp-rtos = { version = "0.3.0", features = ["embassy", "esp-alloc", "esp32"] }
 
 esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32"] }
@@ -22,17 +22,17 @@ critical-section  = "1.2.0"
 dht-sensor        = "0.3.0"
 embassy-executor  = "0.10.0"
 embassy-futures   = "0.1.2"
-embassy-time      = "0.5.1"
+embassy-time      = { version = "0.5.1", features = ["defmt-timestamp-uptime-ms"] }
 embedded-hal      = "1.0.0"
 embedded-io-async = "0.7.0"
 esp-alloc         = "0.10.0"
 esp-backtrace = { version = "0.19.0", features = [
   "esp32",
   "panic-handler",
-  "println",
+  "defmt",
 ] }
-esp-println = { version = "0.17.0", features = ["esp32"] }
-log         = "0.4.34"
+esp-println = { version = "0.17.0", features = ["defmt-espflash", "esp32"] }
+defmt       = { version = "1.0.1", features = ["alloc"] }
 embassy-sync = "0.8.0"
 libm = "0.2.16"
 

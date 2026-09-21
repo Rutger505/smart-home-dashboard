@@ -39,7 +39,7 @@ There are no tests. The crate is `no_std` and has no test harness. Verify change
 - `display::nextion::Nextion` implements `Hmi` over the Nextion serial protocol. Every command and response ends with `0xFF 0xFF 0xFF`. Incoming bytes go into a `VecDeque` and get split on that terminator. `0x65` is a touch event (page, component id, pressed). `0x66` is the reply to `sendme` (current page), which `Nextion::new` uses to sync the starting page.
 - `floor::Floor` is the per-floor state passed to `render`.
 - `sensors` wraps the DHT11 and KY-024 drivers. They are not wired into `main` yet.
-- `logger` is a custom `log` backend on `esp_println`. It uses `log::set_logger_racy` because the Xtensa core has no atomic compare-and-swap, so `logger::init` must run once before any task is spawned.
+- Logging uses `defmt` over UART0 through `esp-println` (`defmt-espflash`). The device sends compact binary frames and `espflash monitor` decodes them against the ELF, so a plain serial terminal shows garbage. `DEFMT_LOG` in `.cargo/config.toml` sets the level at build time. Filtered levels are compiled out, so changing the level needs a rebuild. Logged types need `defmt::Format`, and defmt has its own format syntax (no inline `{name}` args, `{=[u8]:02X}` for hex bytes).
 
 ### Contract between firmware and display
 

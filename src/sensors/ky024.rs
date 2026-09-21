@@ -1,5 +1,5 @@
+use defmt::trace;
 use esp_hal::gpio::Input;
-use log::trace;
 
 pub struct Ky024<'d> {
     pin: Input<'d>,

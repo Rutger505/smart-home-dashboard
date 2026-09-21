@@ -1,7 +1,7 @@
+use defmt::trace;
 use dht_sensor::{DhtError, dht11};
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{InputPin, OutputPin};
-use log::trace;
 
 use super::reading::Reading;
 

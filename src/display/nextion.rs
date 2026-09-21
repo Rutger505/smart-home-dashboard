@@ -4,9 +4,9 @@ use crate::display::touch_event::TouchEvent;
 use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::vec::Vec;
+use defmt::{debug, error, info, trace};
 use esp_hal::Async;
 use esp_hal::uart::{IoError, Uart};
-use log::{debug, error, info, trace};
 
 const COMMAND_TERMINATOR: [u8; 3] = [0xFF; 3];
 
@@ -45,7 +45,7 @@ impl<'a> Nextion<'a> {
             match self.send(b"sendme").await {
                 Ok(()) => break,
                 Err(e) => {
-                    error!("Unable to send 'sendme' command, retrying. Error: {e}",);
+                    error!("Unable to send 'sendme' command, retrying. Error: {}", e);
                 }
             }
         }
@@ -66,7 +66,10 @@ impl<'a> Nextion<'a> {
             let command: Vec<u8> = self.commands.drain(..end).collect();
             self.commands.drain(..COMMAND_TERMINATOR.len());
 
-            trace!("Received command while waiting for page: {:02X?}", command);
+            trace!(
+                "Received command while waiting for page: {=[u8]:02X}",
+                command
+            );
 
             if command[0] == SENDME_EVENT_ID {
                 page = command[1];
@@ -85,11 +88,15 @@ impl<'a> Nextion<'a> {
         );
         match self.uart.read_async(&mut self.rx_buf).await {
             Ok(size) => {
-                trace!("UART read {} bytes: {:02X?}", size, &self.rx_buf[0..size]);
+                trace!(
+                    "UART read {} bytes: {=[u8]:02X}",
+                    size,
+                    &self.rx_buf[0..size]
+                );
                 self.commands.extend(&self.rx_buf[0..size])
             }
 
-            Err(e) => error!("UART Rx Error: {:?}", e),
+            Err(e) => error!("UART Rx Error: {}", e),
         }
     }
 
@@ -101,7 +108,7 @@ impl<'a> Nextion<'a> {
     }
 
     async fn send(&mut self, command: &[u8]) -> Result<(), IoError> {
-        trace!("UART write {:02X?}", command);
+        trace!("UART write {=[u8]:02X}", command);
         self.uart.write_async(command).await?;
         self.uart.write_async(&COMMAND_TERMINATOR).await?;
 
@@ -126,7 +133,7 @@ impl Hmi for Nextion<'_> {
         let command = format!("page {}", page);
 
         if let Err(err) = self.send(command.as_bytes()).await {
-            error!("Tx Error: {:?}", err);
+            error!("Tx Error: {}", err);
             return;
         }
 
@@ -145,7 +152,7 @@ impl Hmi for Nextion<'_> {
         let command = format!("{component_name}.txt=\"{value}\"");
 
         if let Err(err) = self.send(command.as_bytes()).await {
-            error!("Tx Error: {:?}", err);
+            error!("Tx Error: {}", err);
             return;
         }
 
@@ -156,7 +163,7 @@ impl Hmi for Nextion<'_> {
         let command = format!("{component_name}.{attribute}={value}");
 
         if let Err(err) = self.send(command.as_bytes()).await {
-            error!("Tx Error: {:?}", err);
+            error!("Tx Error: {}", err);
             return;
         }
 
@@ -168,7 +175,7 @@ impl Hmi for Nextion<'_> {
         let command = format!("line {x1},{y1},{x2},{y2},{color}");
 
         if let Err(err) = self.send(command.as_bytes()).await {
-            error!("Tx Error: {:?}", err);
+            error!("Tx Error: {}", err);
             return;
         }
 
@@ -193,7 +200,10 @@ impl Hmi for Nextion<'_> {
             let command: Vec<u8> = self.commands.drain(..end).collect();
             self.commands.drain(..COMMAND_TERMINATOR.len());
 
-            trace!("Received command while waiting for touch: {:02X?}", command);
+            trace!(
+                "Received command while waiting for touch: {=[u8]:02X}",
+                command
+            );
 
             if command[0] == TOUCH_EVENT_ID {
                 command_data = [command[1], command[2], command[3]];
@@ -201,7 +211,7 @@ impl Hmi for Nextion<'_> {
             }
         }
 
-        trace!("Touch event data: {:02X?}", command_data);
+        trace!("Touch event data: {=[u8]:02X}", command_data);
         TouchEvent {
             page: command_data[0],
             component_id: command_data[1],

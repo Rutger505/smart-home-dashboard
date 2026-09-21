@@ -3,7 +3,7 @@ use crate::display::hmi::Hmi;
 use crate::display::touch_event::TouchEvent;
 use crate::floor::Floor;
 use alloc::format;
-use log::{error, trace};
+use defmt::{error, trace};
 
 const SECOND_FLOOR_ID: u8 = 1;
 
