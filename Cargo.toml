@@ -9,6 +9,9 @@ version      = "0.1.0"
 name = "smart-home-dashboard"
 path = "./src/bin/main.rs"
 
+[lints.rust]
+async_fn_in_trait = "allow"
+
 [dependencies]
 esp-hal = { version = "~1.1.2", features = ["esp32", "unstable"] }
 esp-rtos = { version = "0.3.0", features = ["embassy", "esp-alloc", "esp32"] }
