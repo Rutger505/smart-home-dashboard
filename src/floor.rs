@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-#[derive(defmt::Format)]
+#[derive(Clone, PartialEq, defmt::Format)]
 pub struct Floor {
     pub temperatures: Vec<u8>,
     pub doors: Vec<bool>,
