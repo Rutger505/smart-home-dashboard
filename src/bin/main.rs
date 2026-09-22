@@ -16,7 +16,6 @@ use esp_backtrace as _;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{DriveMode, Flex, Input, InputConfig, OutputConfig, Pull};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
-use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config, Uart};
 use esp_println as _;
@@ -71,6 +70,10 @@ async fn main(spawner: Spawner) -> ! {
         dht11: Dht11::new(open_drain(peripherals.GPIO4.into())),
         doors: Ky024::new(Input::new(peripherals.GPIO25, InputConfig::default())),
         windows: Ky024::new(Input::new(peripherals.GPIO26, InputConfig::default())),
+        light_switch: Input::new(
+            peripherals.GPIO27,
+            InputConfig::default().with_pull(Pull::Up),
+        ),
     };
 
     spawner.spawn(display_task(display).unwrap());
@@ -86,6 +89,8 @@ struct Sensors {
     dht11: Dht11<Flex<'static>>,
     doors: Ky024<'static>,
     windows: Ky024<'static>,
+    /// Switch between the pin and GND, so closed reads low.
+    light_switch: Input<'static>,
 }
 
 // The DHT11 data line is bidirectional: the ESP pulls it low to start a
@@ -105,7 +110,6 @@ fn open_drain(pin: esp_hal::gpio::AnyPin<'static>) -> Flex<'static> {
 
 #[embassy_executor::task]
 async fn sensor_data_task(mut sensors: Sensors) {
-    let rng = Rng::new();
     let mut delay = Delay::new();
     let mut temperature = None;
 
@@ -125,14 +129,10 @@ async fn sensor_data_task(mut sensors: Sensors) {
 
         let door_closed = sensors.doors.detects_magnet();
         let window_closed = sensors.windows.detects_magnet();
+        let light_on = sensors.light_switch.is_low();
 
         let temperatures = |count: usize| -> Vec<u8> {
             temperature.map_or_else(Vec::new, |temperature| vec![temperature; count])
-        };
-        let mocked_states = |count: usize| -> Vec<bool> {
-            (0..count)
-                .map(|_| (rng.random() / 2).is_multiple_of(2))
-                .collect()
         };
 
         let data = [
@@ -140,13 +140,13 @@ async fn sensor_data_task(mut sensors: Sensors) {
                 temperatures: temperatures(2),
                 doors: vec![door_closed; 2],
                 windows: vec![window_closed; 2],
-                lights: mocked_states(2),
+                lights: vec![light_on; 2],
             },
             Floor {
                 temperatures: temperatures(5),
                 doors: vec![door_closed; 4],
                 windows: vec![window_closed; 4],
-                lights: mocked_states(5),
+                lights: vec![light_on; 5],
             },
         ];
 
