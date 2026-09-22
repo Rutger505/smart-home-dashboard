@@ -150,7 +150,7 @@ async fn sensor_data_task(mut sensors: Sensors) {
             },
         ];
 
-        debug!("Sending data to display_task");
+        debug!("Sending data to display_task: {:?}", data);
 
         SENSOR_DATA_SIGNAL.signal(data);
     }

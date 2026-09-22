@@ -4,7 +4,7 @@ use crate::display::touch_event::TouchEvent;
 use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::vec::Vec;
-use defmt::{debug, error, info, trace};
+use defmt::{error, info, trace};
 use esp_hal::Async;
 use esp_hal::uart::{IoError, Uart};
 
@@ -139,7 +139,6 @@ impl Hmi for Nextion<'_> {
 
         self.page = page;
 
-        debug!("Written data: {}", command);
         info!("Page set to: {}", page);
     }
 
@@ -153,10 +152,7 @@ impl Hmi for Nextion<'_> {
 
         if let Err(err) = self.send(command.as_bytes()).await {
             error!("Tx Error: {}", err);
-            return;
         }
-
-        debug!("Written data: {}", command);
     }
 
     async fn set_number(&mut self, component_name: &str, attribute: &str, value: u32) {
@@ -164,10 +160,7 @@ impl Hmi for Nextion<'_> {
 
         if let Err(err) = self.send(command.as_bytes()).await {
             error!("Tx Error: {}", err);
-            return;
         }
-
-        debug!("Written data: {}", command);
     }
 
     async fn draw_line(&mut self, line: Line, color: u32) {
@@ -176,10 +169,7 @@ impl Hmi for Nextion<'_> {
 
         if let Err(err) = self.send(command.as_bytes()).await {
             error!("Tx Error: {}", err);
-            return;
         }
-
-        debug!("Written data: {}", command);
     }
 
     async fn next_touch_event(&mut self) -> TouchEvent {
