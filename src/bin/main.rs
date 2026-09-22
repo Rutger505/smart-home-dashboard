@@ -3,13 +3,18 @@
 
 extern crate alloc;
 
-use defmt::{debug, trace};
+use alloc::vec;
+use alloc::vec::Vec;
+use defmt::{debug, trace, warn};
+use dht_sensor::DhtError;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Ticker, Timer};
 use esp_backtrace as _;
+use esp_hal::delay::Delay;
+use esp_hal::gpio::{DriveMode, Flex, Input, InputConfig, OutputConfig, Pull};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
@@ -19,6 +24,8 @@ use smart_home_dashboard::display::display::Display;
 use smart_home_dashboard::display::hmi::Hmi;
 use smart_home_dashboard::display::nextion::Nextion;
 use smart_home_dashboard::floor::Floor;
+use smart_home_dashboard::sensors::dht11::Dht11;
+use smart_home_dashboard::sensors::ky024::Ky024;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -60,8 +67,14 @@ async fn main(spawner: Spawner) -> ! {
     trace!("Nextion ready on page {}", page);
 
     let display = Display::new(nextion, page);
+    let sensors = Sensors {
+        dht11: Dht11::new(open_drain(peripherals.GPIO4.into())),
+        doors: Ky024::new(Input::new(peripherals.GPIO25, InputConfig::default())),
+        windows: Ky024::new(Input::new(peripherals.GPIO26, InputConfig::default())),
+    };
+
     spawner.spawn(display_task(display).unwrap());
-    spawner.spawn(sensor_data_task().unwrap());
+    spawner.spawn(sensor_data_task(sensors).unwrap());
     trace!("Tasks spawned");
 
     loop {
@@ -69,19 +82,54 @@ async fn main(spawner: Spawner) -> ! {
     }
 }
 
-#[embassy_executor::task]
-async fn sensor_data_task() {
-    let rng = Rng::new();
+struct Sensors {
+    dht11: Dht11<Flex<'static>>,
+    doors: Ky024<'static>,
+    windows: Ky024<'static>,
+}
 
-    let mut poll_sensor_ticker = Ticker::every(Duration::from_secs(3));
+// The DHT11 data line is bidirectional: the ESP pulls it low to start a
+// reading, then releases it and listens.
+fn open_drain(pin: esp_hal::gpio::AnyPin<'static>) -> Flex<'static> {
+    let mut flex = Flex::new(pin);
+    flex.apply_output_config(
+        &OutputConfig::default()
+            .with_drive_mode(DriveMode::OpenDrain)
+            .with_pull(Pull::Up),
+    );
+    flex.set_high();
+    flex.set_output_enable(true);
+    flex.set_input_enable(true);
+    flex
+}
+
+#[embassy_executor::task]
+async fn sensor_data_task(mut sensors: Sensors) {
+    let rng = Rng::new();
+    let mut delay = Delay::new();
+    let mut temperature = None;
+
+    // The DHT11 needs at least a second between reads.
+    let mut poll_sensor_ticker = Ticker::every(Duration::from_millis(300));
 
     loop {
         poll_sensor_ticker.next().await;
         trace!("Sensor tick");
 
-        let temperatures =
-            |count: usize| (0..count).map(|_| (15 + rng.random() % 15) as u8).collect();
-        let states = |count: usize| {
+        match sensors.dht11.read(&mut delay) {
+            Ok(reading) => temperature = Some(reading.temperature.max(0) as u8),
+            Err(DhtError::Timeout) => warn!("DHT11 timeout"),
+            Err(DhtError::ChecksumMismatch) => warn!("DHT11 checksum mismatch"),
+            Err(DhtError::PinError(_)) => warn!("DHT11 pin error"),
+        }
+
+        let door_closed = sensors.doors.detects_magnet();
+        let window_closed = sensors.windows.detects_magnet();
+
+        let temperatures = |count: usize| -> Vec<u8> {
+            temperature.map_or_else(Vec::new, |temperature| vec![temperature; count])
+        };
+        let mocked_states = |count: usize| -> Vec<bool> {
             (0..count)
                 .map(|_| (rng.random() / 2).is_multiple_of(2))
                 .collect()
@@ -90,15 +138,15 @@ async fn sensor_data_task() {
         let data = [
             Floor {
                 temperatures: temperatures(2),
-                doors: states(2),
-                windows: states(2),
-                lights: states(2),
+                doors: vec![door_closed; 2],
+                windows: vec![window_closed; 2],
+                lights: mocked_states(2),
             },
             Floor {
                 temperatures: temperatures(5),
-                doors: states(4),
-                windows: states(4),
-                lights: states(5),
+                doors: vec![door_closed; 4],
+                windows: vec![window_closed; 4],
+                lights: mocked_states(5),
             },
         ];
 
