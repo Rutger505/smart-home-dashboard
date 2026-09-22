@@ -3,7 +3,7 @@ use crate::display::hmi::Hmi;
 use crate::display::touch_event::TouchEvent;
 use crate::floor::Floor;
 use alloc::format;
-use defmt::{error, trace};
+use defmt::{debug, error, trace};
 use embassy_time::{Duration, Timer};
 
 const SECOND_FLOOR_ID: u8 = 1;
@@ -34,6 +34,7 @@ impl<D> Display<D> {
 
 impl<D: Hmi> Display<D> {
     pub async fn draw_floor_plan(&mut self) {
+        debug!("Drawing floor {}", self.page);
         for line in floor_plan(self.page) {
             self.hmi.draw_line(line, WHITE).await;
         }
